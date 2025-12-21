@@ -1,0 +1,31 @@
+target/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Runtime/install artifacts
+.runtime/
+*.log
+*.tmp
+
+# Build outputs
+dist/
+build/
+*.exe
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+app/*/
