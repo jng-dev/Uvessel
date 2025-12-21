@@ -9,6 +9,7 @@ mod runner;
 mod shortcuts;
 mod state;
 mod uv;
+mod config;
 
 use anyhow::Result;
 use std::path::Path;

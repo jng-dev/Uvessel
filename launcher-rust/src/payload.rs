@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use std::{
+    ffi::OsStr,
     io::Read,
     path::{Component, Path},
 };
@@ -10,10 +11,30 @@ pub fn install_payload(dest_root: &Path) -> Result<()> {
     if EMBEDDED_PAYLOAD.is_empty() {
         bail!("embedded payload is empty");
     }
-    extract_zip_to(dest_root)
+    install_payload_with_options(dest_root, PayloadOptions::default())
 }
 
-fn extract_zip_to(dest_root: &Path) -> Result<()> {
+#[derive(Debug, Clone, Copy)]
+pub struct PayloadOptions {
+    pub skip_existing_data: bool,
+}
+
+impl Default for PayloadOptions {
+    fn default() -> Self {
+        Self {
+            skip_existing_data: false,
+        }
+    }
+}
+
+pub fn install_payload_with_options(dest_root: &Path, options: PayloadOptions) -> Result<()> {
+    if EMBEDDED_PAYLOAD.is_empty() {
+        bail!("embedded payload is empty");
+    }
+    extract_zip_to(dest_root, options)
+}
+
+fn extract_zip_to(dest_root: &Path, options: PayloadOptions) -> Result<()> {
     let reader = std::io::Cursor::new(EMBEDDED_PAYLOAD);
     let mut zip = zip::ZipArchive::new(reader).context("read embedded zip")?;
     for i in 0..zip.len() {
@@ -29,6 +50,20 @@ fn extract_zip_to(dest_root: &Path) -> Result<()> {
         }
 
         let out_path = dest_root.join(path);
+        let is_data = path
+            .components()
+            .next()
+            .and_then(|c| match c {
+                Component::Normal(n) => Some(n),
+                _ => None,
+            })
+            .map(|n| n == OsStr::new("data"))
+            .unwrap_or(false);
+
+        if options.skip_existing_data && is_data && out_path.exists() {
+            continue;
+        }
+
         if entry.is_dir() {
             std::fs::create_dir_all(&out_path)
                 .with_context(|| format!("create {}", out_path.display()))?;

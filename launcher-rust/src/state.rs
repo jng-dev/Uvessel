@@ -23,6 +23,8 @@ pub struct State {
     pub entry: EntryPoint,
     pub lock_mtime_unix: u64,
     pub installed: bool,
+    #[serde(default)]
+    pub launcher_version: String,
 }
 
 pub fn state_path(root: &Path) -> PathBuf {
@@ -46,17 +48,63 @@ pub fn default_state_for_project(root: &Path, proj: &Path) -> Result<State> {
     let rel = proj.strip_prefix(root).unwrap_or(proj);
     let rel_str = rel.to_string_lossy().to_string();
 
-    let main_py = proj.join("main.py");
-    if !main_py.exists() {
-        bail!("Default entrypoint main.py not found at {}", main_py.display());
-    }
+    let entry = if let Some(entry) = entry_point_from_config(proj)? {
+        entry
+    } else {
+        let main_py = proj.join("main.py");
+        if !main_py.exists() {
+            bail!("Default entrypoint main.py not found at {}", main_py.display());
+        }
+        EntryPoint::PythonFile("main.py".to_string())
+    };
 
     Ok(State {
         project_rel: rel_str,
-        entry: EntryPoint::PythonFile("main.py".to_string()),
+        entry,
         lock_mtime_unix: 0,
         installed: true,
+        launcher_version: crate::config::VERSION.to_string(),
     })
+}
+
+fn entry_point_from_config(proj: &Path) -> Result<Option<EntryPoint>> {
+    let raw = crate::config::ENTRY_POINT.trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let entry = parse_entry_point(raw)?;
+    if let EntryPoint::PythonFile(ref f) = entry {
+        let path = proj.join(f);
+        if !path.exists() {
+            bail!(
+                "Configured entry_point not found: {} (config.toml entry_point)",
+                path.display()
+            );
+        }
+    }
+    Ok(Some(entry))
+}
+
+fn parse_entry_point(raw: &str) -> Result<EntryPoint> {
+    let trimmed = raw.trim();
+    if let Some(rest) = trimmed.strip_prefix("module:") {
+        let val = rest.trim();
+        if val.is_empty() {
+            bail!("entry_point module is empty");
+        }
+        return Ok(EntryPoint::Module(val.to_string()));
+    }
+    if let Some(rest) = trimmed.strip_prefix("command:") {
+        let val = rest.trim();
+        if val.is_empty() {
+            bail!("entry_point command is empty");
+        }
+        return Ok(EntryPoint::Command(val.to_string()));
+    }
+    if trimmed.is_empty() {
+        bail!("entry_point is empty");
+    }
+    Ok(EntryPoint::PythonFile(trimmed.to_string()))
 }
 
 pub fn read_state(state_path: &Path) -> Result<State> {
@@ -93,6 +141,7 @@ mod tests {
             entry: EntryPoint::PythonFile("main.py".to_string()),
             lock_mtime_unix: 123,
             installed: true,
+            launcher_version: "1.2.3".to_string(),
         };
         let s = serde_json::to_string(&state).unwrap();
         let out: State = serde_json::from_str(&s).unwrap();
@@ -119,7 +168,20 @@ mod tests {
                 entry: EntryPoint::PythonFile("main.py".to_string()),
                 lock_mtime_unix: 0,
                 installed: true,
+                launcher_version: crate::config::VERSION.to_string(),
             }
         );
+    }
+
+    #[test]
+    fn parse_entry_point_variants() {
+        let py = parse_entry_point("main.py").unwrap();
+        assert_eq!(py, EntryPoint::PythonFile("main.py".to_string()));
+
+        let module = parse_entry_point("module:pkg.__main__").unwrap();
+        assert_eq!(module, EntryPoint::Module("pkg.__main__".to_string()));
+
+        let cmd = parse_entry_point("command:mycli").unwrap();
+        assert_eq!(cmd, EntryPoint::Command("mycli".to_string()));
     }
 }

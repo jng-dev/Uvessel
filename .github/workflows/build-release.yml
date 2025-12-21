@@ -1,0 +1,48 @@
+name: Build and Release Launcher
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build builder
+        run: cargo build --release
+        working-directory: builder-rust
+
+      - name: Build launcher via builder
+        run: .\builder-rust\target\release\uvessel-builder.exe --out-dir dist
+
+      - name: Read version from config.toml
+        id: version
+        run: |
+          $line = Get-Content config.toml | Select-String -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+          if (-not $line) { throw "version not found in config.toml" }
+          $version = $line.Matches[0].Groups[1].Value
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Verify tag matches config version
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $configVersion = "${{ steps.version.outputs.version }}"
+          if ($tag -ne "v$configVersion") {
+            throw "Tag $tag does not match config version v$configVersion"
+          }
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          files: dist/*.exe

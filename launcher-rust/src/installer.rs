@@ -44,10 +44,36 @@ pub fn run_with_deps(
     fs::create_dir_all(install_root)
         .with_context(|| format!("create {}", install_root.display()))?;
 
+    let state_path = state::state_path(install_root);
+    let existing_state = if state_path.exists() {
+        Some(state::read_state(&state_path)?)
+    } else {
+        None
+    };
+    let same_version = existing_state
+        .as_ref()
+        .map(|st| st.launcher_version == crate::config::VERSION)
+        .unwrap_or(false);
+
     let dest_exe = install_root.join(format!("{app_name}.exe"));
     fs_ops::copy_file_with_retry(self_exe, &dest_exe, 5)?;
 
-    payload::install_payload(install_root)?;
+    if same_version {
+        launch_fn(&dest_exe)?;
+        return Ok(());
+    }
+
+    if existing_state.is_some() {
+        remove_app_dir(install_root)?;
+        remove_venv_dir(install_root)?;
+    }
+
+    payload::install_payload_with_options(
+        install_root,
+        payload::PayloadOptions {
+            skip_existing_data: true,
+        },
+    )?;
 
     let icon = copy_icon_if_present(src_root, install_root)?;
 
@@ -182,12 +208,12 @@ fn read_python_version(proj: &Path) -> Result<Option<String>> {
 }
 
 fn copy_icon_if_present(src_root: &Path, install_root: &Path) -> Result<Option<PathBuf>> {
-    let media_dir = src_root.join("media");
-    if !media_dir.exists() {
+    let assets_dir = src_root.join("assets");
+    if !assets_dir.exists() {
         return Ok(None);
     }
-    let mut ico_paths: Vec<PathBuf> = fs::read_dir(&media_dir)
-        .with_context(|| format!("read_dir {}", media_dir.display()))?
+    let mut ico_paths: Vec<PathBuf> = fs::read_dir(&assets_dir)
+        .with_context(|| format!("read_dir {}", assets_dir.display()))?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|path| path.extension().map(|e| e.eq_ignore_ascii_case("ico")).unwrap_or(false))
@@ -202,6 +228,24 @@ fn copy_icon_if_present(src_root: &Path, install_root: &Path) -> Result<Option<P
     let dest_ico = install_root.join(file_name);
     fs_ops::copy_file_with_retry(src_ico, &dest_ico, 5)?;
     Ok(Some(dest_ico))
+}
+
+fn remove_app_dir(install_root: &Path) -> Result<()> {
+    let app_dir = install_root.join("app");
+    if app_dir.exists() {
+        fs::remove_dir_all(&app_dir)
+            .with_context(|| format!("remove {}", app_dir.display()))?;
+    }
+    Ok(())
+}
+
+fn remove_venv_dir(install_root: &Path) -> Result<()> {
+    let venv_dir = install_root.join(".runtime").join("venv");
+    if venv_dir.exists() {
+        fs::remove_dir_all(&venv_dir)
+            .with_context(|| format!("remove {}", venv_dir.display()))?;
+    }
+    Ok(())
 }
 
 fn cleanup_uv_cache(runtime: &Path) -> Result<()> {

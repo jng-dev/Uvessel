@@ -16,3 +16,5 @@ windows-sys = { version = "0.52", features = ["Win32_System_Console", "Win32_Fou
 [build-dependencies]
 zip = "0.6"
 winres = "0.1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
