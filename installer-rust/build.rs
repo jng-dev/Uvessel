@@ -12,11 +12,20 @@ fn main() {
     let repo_root = manifest_dir.join("..");
     let app_dir = repo_root.join("app");
     println!("cargo:rerun-if-changed={}", app_dir.display());
+    let shim_path = manifest_dir.join("embedded").join("launcher.exe");
+    println!("cargo:rerun-if-changed={}", shim_path.display());
     let out_path = PathBuf::from(&out_dir).join("app_payload.zip");
     let root_dir = app_dir.parent().unwrap_or(&app_dir);
     let config = load_config(&repo_root).unwrap_or_else(|err| {
         panic!("failed to load config.toml: {err}");
     });
+
+    if !shim_path.exists() {
+        panic!(
+            "embedded shim not found at {} (build the shim first)",
+            shim_path.display()
+        );
+    }
 
     if !app_dir.exists() {
         panic!("app/ directory not found; cannot embed payload");

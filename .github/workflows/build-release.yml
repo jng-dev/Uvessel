@@ -45,4 +45,4 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          files: dist/*.exe
+          files: dist/*-installer.exe

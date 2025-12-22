@@ -38,9 +38,13 @@ fn main() -> Result<()> {
     validate_config(&config, &repo_root)?;
 
     let installer_dir = repo_root.join("installer-rust");
+    let shim_dir = repo_root.join("launcher-rust");
+
+    build_launcher(&shim_dir)?;
+    stage_shim_for_installer(&shim_dir, &installer_dir)?;
     build_launcher(&installer_dir)?;
 
-    let exe_name = sanitize_exe_name(&config.product_name);
+    let exe_name = format!("{}-installer", sanitize_exe_name(&config.product_name));
     let built_exe = installer_dir
         .join("target")
         .join("release")
@@ -113,6 +117,27 @@ fn build_launcher(launcher_dir: &Path) -> Result<()> {
     if !status.success() {
         bail!("cargo build failed (exit {:?})", status.code());
     }
+    Ok(())
+}
+
+fn stage_shim_for_installer(shim_dir: &Path, installer_dir: &Path) -> Result<()> {
+    let shim_exe = shim_dir
+        .join("target")
+        .join("release")
+        .join("launcher.exe");
+    if !shim_exe.exists() {
+        bail!("shim launcher.exe not found at {}", shim_exe.display());
+    }
+    let embedded_dir = installer_dir.join("embedded");
+    fs::create_dir_all(&embedded_dir).context("create embedded dir")?;
+    let dest = embedded_dir.join("launcher.exe");
+    fs::copy(&shim_exe, &dest).with_context(|| {
+        format!(
+            "copy {} -> {}",
+            shim_exe.display(),
+            dest.display()
+        )
+    })?;
     Ok(())
 }
 

@@ -6,6 +6,7 @@ mod logging;
 mod paths;
 mod payload;
 mod shortcuts;
+mod shim_payload;
 mod state;
 mod uv;
 mod config;

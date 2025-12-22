@@ -5,18 +5,16 @@ use std::{
     process::{Command, ExitStatus, Stdio},
 };
 
-use crate::{fs_ops, payload, shortcuts, state, uv};
+use crate::{fs_ops, payload, shortcuts, shim_payload, state, uv};
 
-pub fn run(src_root: &Path) -> Result<()> {
-    let self_exe = crate::paths::self_path()?;
-    let app_name = app_name_from_exe(&self_exe)?;
+pub fn run(root: &Path) -> Result<()> {
+    let app_name = app_name_from_config();
     let install_root = crate::paths::default_install_root(&app_name)?;
 
     run_with_deps(
-        src_root,
+        root,
         &install_root,
         &app_name,
-        &self_exe,
         uv::ensure_uv,
         |cmd| cmd.status().context("spawn command"),
         |start_menu, name, target, icon| {
@@ -32,10 +30,9 @@ pub fn run(src_root: &Path) -> Result<()> {
 }
 
 pub fn run_with_deps(
-    src_root: &Path,
+    _root: &Path,
     install_root: &Path,
     app_name: &str,
-    self_exe: &Path,
     ensure_uv_fn: impl Fn(&Path) -> Result<()>,
     mut exec: impl FnMut(&mut Command) -> Result<ExitStatus>,
     create_shortcut_fn: impl Fn(&Path, &str, &Path, Option<&Path>) -> Result<PathBuf>,
@@ -56,12 +53,12 @@ pub fn run_with_deps(
         .unwrap_or(false);
 
     let dest_exe = install_root.join(format!("{app_name}.exe"));
-    fs_ops::copy_file_with_retry(self_exe, &dest_exe, 5)?;
-
     if same_version {
         launch_fn(&dest_exe)?;
         return Ok(());
     }
+
+    write_shim_exe(&dest_exe)?;
 
     if existing_state.is_some() {
         remove_app_dir(install_root)?;
@@ -75,7 +72,7 @@ pub fn run_with_deps(
         },
     )?;
 
-    let icon = copy_icon_if_present(src_root, install_root)?;
+    let icon = resolve_icon_path(install_root);
 
     ensure_uv_fn(install_root)?;
 
@@ -136,12 +133,16 @@ pub fn run_with_deps(
     Ok(())
 }
 
-fn app_name_from_exe(exe: &Path) -> Result<String> {
-    let stem = exe.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    if stem.is_empty() {
-        bail!("executable name is empty");
+fn app_name_from_config() -> String {
+    let product = crate::config::PRODUCT_NAME.trim();
+    if !product.is_empty() {
+        return product.to_string();
     }
-    Ok(stem.to_string())
+    let name = crate::config::NAME.trim();
+    if !name.is_empty() {
+        return name.to_string();
+    }
+    "UvesselApp".to_string()
 }
 
 fn ensure_runtime_dirs(runtime: &Path) -> Result<()> {
@@ -207,27 +208,24 @@ fn read_python_version(proj: &Path) -> Result<Option<String>> {
     Ok(Some(version.to_string()))
 }
 
-fn copy_icon_if_present(src_root: &Path, install_root: &Path) -> Result<Option<PathBuf>> {
-    let assets_dir = src_root.join("assets");
-    if !assets_dir.exists() {
-        return Ok(None);
+fn resolve_icon_path(install_root: &Path) -> Option<PathBuf> {
+    let icon = crate::config::ICON.trim();
+    if icon.is_empty() {
+        return None;
     }
-    let mut ico_paths: Vec<PathBuf> = fs::read_dir(&assets_dir)
-        .with_context(|| format!("read_dir {}", assets_dir.display()))?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().map(|e| e.eq_ignore_ascii_case("ico")).unwrap_or(false))
-        .collect();
-    ico_paths.sort();
-    let Some(src_ico) = ico_paths.first() else {
-        return Ok(None);
-    };
-    let file_name = src_ico
-        .file_name()
-        .context("ico file has no name")?;
-    let dest_ico = install_root.join(file_name);
-    fs_ops::copy_file_with_retry(src_ico, &dest_ico, 5)?;
-    Ok(Some(dest_ico))
+    let icon_path = Path::new(icon);
+    if icon_path.is_absolute() {
+        return icon_path.exists().then(|| icon_path.to_path_buf());
+    }
+    let candidate = install_root.join(icon_path);
+    candidate.exists().then_some(candidate)
+}
+
+fn write_shim_exe(dest_exe: &Path) -> Result<()> {
+    if shim_payload::EMBEDDED_SHIM.is_empty() {
+        bail!("embedded shim is empty");
+    }
+    fs_ops::write_bytes_with_retry(dest_exe, shim_payload::EMBEDDED_SHIM, 5)
 }
 
 fn remove_app_dir(install_root: &Path) -> Result<()> {

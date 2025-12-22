@@ -61,12 +61,28 @@ fn move_file_atomic(src: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+fn write_bytes_atomic(dest: &Path, bytes: &[u8]) -> Result<()> {
+    let tmp = temp_path_for(dest)?;
+    fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
+    if dest.exists() {
+        fs::remove_file(dest)
+            .with_context(|| format!("remove {}", dest.display()))?;
+    }
+    fs::rename(&tmp, dest)
+        .with_context(|| format!("rename {} -> {}", tmp.display(), dest.display()))?;
+    Ok(())
+}
+
 pub fn copy_file_with_retry(src: &Path, dest: &Path, attempts: usize) -> Result<()> {
     retry(|| copy_file_atomic(src, dest), attempts)
 }
 
 pub fn move_file_with_retry(src: &Path, dest: &Path, attempts: usize) -> Result<()> {
     retry(|| move_file_atomic(src, dest), attempts)
+}
+
+pub fn write_bytes_with_retry(dest: &Path, bytes: &[u8], attempts: usize) -> Result<()> {
+    retry(|| write_bytes_atomic(dest, bytes), attempts)
 }
 
 #[cfg(test)]
