@@ -10,6 +10,7 @@ mod state;
 mod uv;
 mod config;
 mod updater_payload;
+mod ui_payload;
 
 use anyhow::Result;
 

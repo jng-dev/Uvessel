@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::{
     fs,
-    io,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 
@@ -27,6 +27,10 @@ fn main() {
 
     if let Err(err) = embed_icon(&repo_root, &config) {
         panic!("failed to embed icon: {err}");
+    }
+
+    if let Err(err) = write_config_rs(&PathBuf::from(std::env::var("OUT_DIR").unwrap()), &config) {
+        panic!("failed to write config: {err}");
     }
 }
 
@@ -83,4 +87,14 @@ fn resolve_icon_path(repo_root: &Path, config: &Config) -> Option<PathBuf> {
         .collect();
     ico_paths.sort();
     ico_paths.first().cloned()
+}
+
+fn write_config_rs(out_dir: &Path, config: &Config) -> io::Result<()> {
+    use std::io::Write;
+    let out_path = out_dir.join("uvessel_config.rs");
+    let mut file = fs::File::create(&out_path)?;
+    writeln!(file, "pub const APP_ID: &str = {:?};", config.app_id)?;
+    writeln!(file, "pub const NAME: &str = {:?};", config.name)?;
+    writeln!(file, "pub const PRODUCT_NAME: &str = {:?};", config.product_name)?;
+    Ok(())
 }

@@ -6,13 +6,23 @@ use std::{
     process::{Command, ExitStatus, Stdio},
 };
 
-use crate::{fs_ops, payload, shortcuts, shim_payload, state, uv, updater_payload};
+use crate::{fs_ops, payload, shortcuts, shim_payload, state, ui_payload, uv, updater_payload};
 
 pub fn run(root: &Path) -> Result<()> {
     let app_name = app_name_from_config();
     let install_root = crate::paths::default_install_root(&app_name)?;
 
-    run_with_deps(
+    let done_marker = create_done_marker_path();
+    let mut ui_child = match launch_installer_ui(&app_name, Some(&done_marker)) {
+        Ok(child) => child,
+        Err(err) => {
+            eprintln!("warning: failed to launch installer ui: {err}");
+            None
+        }
+    };
+
+    let mut pending_launch: Option<PathBuf> = None;
+    let result = run_with_deps(
         root,
         &install_root,
         &app_name,
@@ -22,12 +32,28 @@ pub fn run(root: &Path) -> Result<()> {
             shortcuts::create_start_menu_shortcut(start_menu, name, target, icon)
         },
         |exe| {
-            Command::new(exe)
-                .spawn()
-                .context("launch installed exe")?;
+            pending_launch = Some(exe.to_path_buf());
             Ok(())
         },
-    )
+    );
+
+    if result.is_ok() {
+        let _ = std::fs::write(&done_marker, "done");
+    }
+
+    if let Some(child) = ui_child.as_mut() {
+        let _ = child.wait();
+    }
+
+    if result.is_ok() {
+        if let Some(exe) = pending_launch {
+            Command::new(&exe)
+                .spawn()
+                .with_context(|| format!("launch installed exe {}", exe.display()))?;
+        }
+    }
+
+    result
 }
 
 pub fn run_with_deps(
@@ -37,7 +63,7 @@ pub fn run_with_deps(
     ensure_uv_fn: impl Fn(&Path) -> Result<()>,
     mut exec: impl FnMut(&mut Command) -> Result<ExitStatus>,
     create_shortcut_fn: impl Fn(&Path, &str, &Path, Option<&Path>) -> Result<PathBuf>,
-    launch_fn: impl Fn(&Path) -> Result<()>,
+    mut launch_fn: impl FnMut(&Path) -> Result<()>,
 ) -> Result<()> {
     fs::create_dir_all(install_root)
         .with_context(|| format!("create {}", install_root.display()))?;
@@ -107,8 +133,6 @@ pub fn run_with_deps(
         bail!("uv.exe not found after install at {}", uv_exe.display());
     }
 
-    ensure_console_visible();
-
     run_with_retry(
         || {
             let mut install = build_uv_cmd(&uv_exe, &proj, &runtime);
@@ -158,6 +182,69 @@ fn app_name_from_config() -> String {
         return name.to_string();
     }
     "UvesselApp".to_string()
+}
+
+fn launch_installer_ui(app_name: &str, done_marker: Option<&Path>) -> Result<Option<std::process::Child>> {
+    if ui_payload::EMBEDDED_INSTALLER_UI.is_empty() {
+        return Ok(None);
+    }
+
+    let ui_path = write_installer_ui_exe()?;
+    let icon_path = resolve_ui_icon_path()?;
+
+    let mut cmd = Command::new(&ui_path);
+    cmd.arg("--name").arg(app_name);
+    if let Some(icon_path) = icon_path {
+        cmd.arg("--icon").arg(icon_path);
+    }
+    if let Some(marker) = done_marker {
+        cmd.arg("--done-file").arg(marker);
+    }
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let child = cmd.spawn().context("spawn installer ui")?;
+    Ok(Some(child))
+}
+
+fn write_installer_ui_exe() -> Result<PathBuf> {
+    let file = tempfile::Builder::new()
+        .prefix("uvessel-installer-ui-")
+        .suffix(".exe")
+        .tempfile()
+        .context("create temp installer ui")?;
+    let (_, path) = file.keep().context("persist temp installer ui")?;
+    fs_ops::write_bytes_with_retry(&path, ui_payload::EMBEDDED_INSTALLER_UI, 3)?;
+    Ok(path)
+}
+
+fn resolve_ui_icon_path() -> Result<Option<PathBuf>> {
+    let icon = crate::config::ICON.trim();
+    if icon.is_empty() {
+        return Ok(None);
+    }
+    let icon_path = Path::new(icon);
+    if icon_path.is_absolute() {
+        return Ok(icon_path.exists().then(|| icon_path.to_path_buf()));
+    }
+    payload::extract_embedded_file(icon_path)
+}
+
+fn create_done_marker_path() -> PathBuf {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let mut path = std::env::temp_dir();
+    path.push(format!("uvessel-install-done-{nonce}.flag"));
+    path
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -219,6 +306,12 @@ fn build_uv_cmd(uv: &Path, proj: &Path, runtime: &Path) -> Command {
     c.current_dir(proj)
         .envs(uv_env_pairs(runtime))
         .stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        c.creation_flags(CREATE_NO_WINDOW);
+    }
     c
 }
 
@@ -301,13 +394,6 @@ fn cleanup_uv_cache(runtime: &Path) -> Result<()> {
             .with_context(|| format!("remove {}", cache.display()))?;
     }
     Ok(())
-}
-
-fn ensure_console_visible() {
-    #[cfg(windows)]
-    unsafe {
-        let _ = windows_sys::Win32::System::Console::AllocConsole();
-    }
 }
 
 fn run_with_retry(

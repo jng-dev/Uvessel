@@ -14,8 +14,10 @@ fn main() {
     println!("cargo:rerun-if-changed={}", app_dir.display());
     let shim_path = manifest_dir.join("embedded").join("launcher.exe");
     let updater_path = manifest_dir.join("embedded").join("updater.exe");
+    let ui_path = manifest_dir.join("embedded").join("installer-ui.exe");
     println!("cargo:rerun-if-changed={}", shim_path.display());
     println!("cargo:rerun-if-changed={}", updater_path.display());
+    println!("cargo:rerun-if-changed={}", ui_path.display());
     let out_path = PathBuf::from(&out_dir).join("app_payload.zip");
     let root_dir = app_dir.parent().unwrap_or(&app_dir);
     let config = load_config(&repo_root).unwrap_or_else(|err| {
@@ -32,6 +34,12 @@ fn main() {
         panic!(
             "embedded updater not found at {} (build the updater first)",
             updater_path.display()
+        );
+    }
+    if !ui_path.exists() {
+        panic!(
+            "embedded installer ui not found at {} (build the installer ui first)",
+            ui_path.display()
         );
     }
 

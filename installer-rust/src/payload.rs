@@ -4,6 +4,7 @@ use std::{
     io::Read,
     path::{Component, Path},
 };
+use tempfile::Builder;
 
 const EMBEDDED_PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app_payload.zip"));
 
@@ -32,6 +33,47 @@ pub fn install_payload_with_options(dest_root: &Path, options: PayloadOptions) -
         bail!("embedded payload is empty");
     }
     extract_zip_to(dest_root, options)
+}
+
+pub fn extract_embedded_file(path: &Path) -> Result<Option<std::path::PathBuf>> {
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)))
+    {
+        bail!("invalid embedded path: {}", path.display());
+    }
+
+    let name = path.to_string_lossy().replace('\\', "/");
+    let reader = std::io::Cursor::new(EMBEDDED_PAYLOAD);
+    let mut zip = zip::ZipArchive::new(reader).context("read embedded zip")?;
+
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i)?;
+        if entry.name() != name {
+            continue;
+        }
+        if entry.is_dir() {
+            return Ok(None);
+        }
+        let suffix = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| format!(".{ext}"))
+            .unwrap_or_default();
+        let mut tmp = Builder::new()
+            .prefix("uvessel-icon-")
+            .suffix(&suffix)
+            .tempfile()
+            .context("create temp file")?;
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf)?;
+        std::io::Write::write_all(&mut tmp, &buf).context("write temp file")?;
+        let (_, path) = tmp.keep().context("persist temp file")?;
+        return Ok(Some(path));
+    }
+
+    Ok(None)
 }
 
 fn extract_zip_to(dest_root: &Path, options: PayloadOptions) -> Result<()> {

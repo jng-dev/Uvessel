@@ -24,18 +24,24 @@ Key config fields (current usage):
    - `builder-rust/src/main.rs` runs `cargo build --release` in `launcher-rust`.
    - Result: `launcher-rust/target/release/launcher.exe`.
 
-2) Stage the launcher shim into the installer:
+2) Build the installer UI:
+   - `builder-rust/src/main.rs` runs `npm run tauri build` in
+     `tauri-ui-rust/webview-installer-rust`.
+   - Result: `tauri-ui-rust/webview-installer-rust/src-tauri/target/release/webview-installer-rust.exe`.
+
+3) Stage the launcher shim into the installer:
    - Builder copies the built launcher into `installer-rust/embedded/launcher.exe`.
 
-3) Build the installer binary:
+4) Build the installer binary:
    - Builder runs `cargo build --release` in `installer-rust`.
    - `installer-rust/build.rs`:
      - Reads `config.toml`.
-    - Creates `app_payload.zip` from `app/`, `assets/`, and `data/`.
-    - Embeds `launcher.exe` as the shim payload.
+     - Creates `app_payload.zip` from `app/`, `assets/`, and `data/`.
+     - Embeds `launcher.exe` as the shim payload.
     - Embeds `updater.exe` as the updater payload.
-    - Embeds Windows resources (icon, version info).
-    - Emits `installer-rust/src/config.rs` constants (version, links, etc).
+    - Embeds `installer-ui.exe` as the installer UI payload.
+     - Embeds Windows resources (icon, version info).
+     - Emits `installer-rust/src/config.rs` constants (version, links, etc).
 
 4) Produce a distributable installer:
    - Builder copies `installer-rust/target/release/launcher.exe` to `dist/<product>-installer.exe`.
@@ -53,9 +59,11 @@ Key config fields (current usage):
    - If the installer version is older than the installed version, it aborts.
 
 3) Install/update:
+   - Launch the installer UI and keep it open while install runs.
    - Write the launcher shim to `<install_root>\<product_name>.exe`.
-   - If upgrading, remove `app/` and `.runtime/venv`, preserving `data/` and `assets/`.
-   - Extract embedded `app_payload.zip` into the install root.
+   - Write `updater.exe` into the install root.
+    - If upgrading, remove `app/` and `.runtime/venv`, preserving `data/` and `assets/`.
+    - Extract embedded `app_payload.zip` into the install root.
    - Ensure `uv.exe` is present; install Python and sync dependencies using uv.
    - Create Start Menu shortcut.
    - Write updated state metadata.

@@ -42,11 +42,14 @@ fn main() -> Result<()> {
     let installer_dir = repo_root.join("installer-rust");
     let shim_dir = repo_root.join("launcher-rust");
     let updater_dir = repo_root.join("updater-rust");
+    let ui_dir = repo_root.join("tauri-ui-rust").join("webview-installer-rust");
 
     build_launcher(&shim_dir)?;
     build_updater(&updater_dir)?;
+    build_installer_ui(&ui_dir)?;
     stage_shim_for_installer(&shim_dir, &installer_dir)?;
     stage_updater_for_installer(&updater_dir, &installer_dir)?;
+    stage_installer_ui_for_installer(&ui_dir, &installer_dir)?;
     build_launcher(&installer_dir)?;
 
     let exe_name = format!("{}-installer", sanitize_exe_name(&config.product_name));
@@ -174,6 +177,61 @@ fn stage_updater_for_installer(updater_dir: &Path, installer_dir: &Path) -> Resu
         format!(
             "copy {} -> {}",
             updater_exe.display(),
+            dest.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn build_installer_ui(ui_dir: &Path) -> Result<()> {
+    if !ui_dir.exists() {
+        bail!("installer ui dir not found at {}", ui_dir.display());
+    }
+    let node_modules = ui_dir.join("node_modules");
+    if !node_modules.exists() {
+        let status = run_npm(ui_dir, &["install"])?;
+        if !status.success() {
+            bail!("npm install failed (exit {:?})", status.code());
+        }
+    }
+
+    let status = run_npm(ui_dir, &["run", "tauri", "build"])?;
+    if !status.success() {
+        bail!("tauri build failed (exit {:?})", status.code());
+    }
+    Ok(())
+}
+
+fn run_npm(ui_dir: &Path, args: &[&str]) -> Result<std::process::ExitStatus> {
+    let mut cmd = if cfg!(windows) {
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C").arg("npm");
+        cmd
+    } else {
+        Command::new("npm")
+    };
+    cmd.args(args)
+        .current_dir(ui_dir)
+        .status()
+        .with_context(|| format!("npm {} in {}", args.join(" "), ui_dir.display()))
+}
+
+fn stage_installer_ui_for_installer(ui_dir: &Path, installer_dir: &Path) -> Result<()> {
+    let ui_exe = ui_dir
+        .join("src-tauri")
+        .join("target")
+        .join("release")
+        .join("webview-installer-rust.exe");
+    if !ui_exe.exists() {
+        bail!("installer ui exe not found at {}", ui_exe.display());
+    }
+    let embedded_dir = installer_dir.join("embedded");
+    fs::create_dir_all(&embedded_dir).context("create embedded dir")?;
+    let dest = embedded_dir.join("installer-ui.exe");
+    fs::copy(&ui_exe, &dest).with_context(|| {
+        format!(
+            "copy {} -> {}",
+            ui_exe.display(),
             dest.display()
         )
     })?;

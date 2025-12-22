@@ -1,156 +1,398 @@
 <script lang="ts">
+  import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { Image } from "@tauri-apps/api/image";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
 
-  let name = $state("");
-  let greetMsg = $state("");
+  type InstallUiInfo = {
+    name: string;
+    icon_path?: string | null;
+    done_file?: string | null;
+  };
 
-  async function greet(event: Event) {
-    event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
+  let appName = "Your App";
+  let iconUrl = "";
+  let initial = "A";
+  let isDone = false;
+  let pollTimer: number | undefined;
+
+  async function loadIcon(path: string) {
+    try {
+      const image = await Image.fromPath(path);
+      const size = await image.size();
+      const rgba = await image.rgba();
+      const canvas = document.createElement("canvas");
+      canvas.width = size.width;
+      canvas.height = size.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const data = new ImageData(
+        new Uint8ClampedArray(rgba),
+        size.width,
+        size.height
+      );
+      ctx.putImageData(data, 0, 0);
+      iconUrl = canvas.toDataURL("image/png");
+    } catch {
+      // Ignore icon load errors.
+    }
+  }
+
+  onMount(async () => {
+    try {
+      const info = await invoke<InstallUiInfo>("get_install_ui_info");
+      if (info?.name) {
+        appName = info.name;
+        initial = info.name.trim().charAt(0).toUpperCase() || "A";
+      }
+      if (info?.icon_path) {
+        await loadIcon(info.icon_path);
+      }
+      if (info?.done_file) {
+        pollTimer = window.setInterval(async () => {
+          try {
+            const done = await invoke<boolean>("is_install_done");
+            if (done) {
+              isDone = true;
+              if (pollTimer) {
+                clearInterval(pollTimer);
+              }
+            }
+          } catch {
+            // Ignore polling errors.
+          }
+        }, 800);
+      }
+    } catch {
+      initial = appName.trim().charAt(0).toUpperCase() || "A";
+    }
+    try {
+      await getCurrentWindow().center();
+    } catch {
+      // Ignore if permission denied.
+    }
+  });
+
+  onDestroy(() => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+    }
+  });
+
+  async function closeWindow() {
+    try {
+      await invoke("close_window");
+    } catch {
+      // Ignore close errors.
+    }
+  }
+
+  async function startDrag(event: MouseEvent) {
+    if (event.button !== 0) return;
+    try {
+      await getCurrentWindow().startDragging();
+    } catch {
+      // Ignore drag errors.
+    }
   }
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
-
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
+<main class="shell">
+  <div class="titlebar" data-tauri-drag-region on:mousedown={startDrag}>
+    <span class="title" data-tauri-drag-region>Installing</span>
   </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
 
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
+  <section class="card">
+    <div class="header">
+      <div class="icon-wrap">
+        {#if iconUrl}
+          <img class="icon" src={iconUrl} alt="App icon" />
+        {:else}
+          <div class="icon-fallback">{initial}</div>
+        {/if}
+      </div>
+      <div class="title-block">
+        <p class="eyebrow">Installing</p>
+        <h1>{appName}</h1>
+        <p class="subtitle">
+          {isDone
+            ? "Install complete. Click launch to continue."
+            : "Setting things up for the first run."}
+        </p>
+      </div>
+    </div>
+
+    <div class="meter">
+      <div class="track">
+        <div class="fill"></div>
+      </div>
+      <p class="note">
+        {isDone
+          ? "All set. You're ready to launch."
+          : "This can take a minute. We'll let you know when it's ready."}
+      </p>
+    </div>
+
+    <div class="footer">
+      <span class="pulse" class:done={isDone}></span>
+      <span>{isDone ? "Ready to launch" : "Preparing runtime environment"}</span>
+    </div>
+
+    {#if isDone}
+      <button class="primary" on:click={closeWindow}>
+        Launch {appName}
+      </button>
+    {/if}
+  </section>
 </main>
 
 <style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap");
 
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
-
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
+:global(html),
+:global(body) {
   margin: 0;
-  padding-top: 10vh;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  color: #121117;
+  box-sizing: border-box;
+}
+
+:global(*),
+:global(*::before),
+:global(*::after) {
+  box-sizing: inherit;
+}
+
+:global(body) {
+  overscroll-behavior: none;
+}
+
+.shell {
+  min-height: 100vh;
+  background: linear-gradient(155deg, #f4f7fa 0%, #eef2f6 60%, #e6edf4 100%);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.titlebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  text-align: center;
+  padding: 0 16px;
+  color: #5f6a79;
+  font-size: 0.78rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  background: rgba(245, 248, 252, 0.8);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(17, 27, 43, 0.06);
+  z-index: 2;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
+.card {
+  width: min(640px, calc(100vw - 48px));
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(17, 27, 43, 0.08);
+  border-radius: 26px;
+  padding: 30px;
+  box-shadow:
+    0 22px 50px rgba(18, 24, 40, 0.16),
+    0 0 0 1px rgba(104, 140, 255, 0.08),
+    0 0 24px rgba(104, 140, 255, 0.16);
+  display: grid;
+  gap: 22px;
+  animation: fadeUp 0.6s ease-out;
+  backdrop-filter: blur(8px);
 }
 
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
+.header {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 20px;
+  align-items: center;
 }
 
-.row {
-  display: flex;
-  justify-content: center;
+.icon-wrap {
+  width: 72px;
+  height: 72px;
+  border-radius: 22px;
+  background: linear-gradient(140deg, #101722, #1b2433);
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.1);
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+.icon {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
 }
 
-a:hover {
-  color: #535bf2;
+.icon-fallback {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: linear-gradient(140deg, #ccd8e6, #b5c1d6);
+  color: #1b2330;
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  font-size: 1.4rem;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #7b8798;
 }
 
 h1 {
-  text-align: center;
+  margin: 6px 0 6px;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  color: #18202c;
 }
 
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
+.subtitle {
+  margin: 0;
+  color: #6f7a8b;
+  font-size: 1.05rem;
+}
+
+.meter {
+  display: grid;
+  gap: 12px;
+}
+
+.track {
+  height: 10px;
+  background: rgba(17, 27, 43, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  width: 45%;
+  background: linear-gradient(90deg, #7aa2ff, #8fd3ff, #7aa2ff);
+  animation: glide 2.2s ease-in-out infinite;
+}
+
+.note {
+  margin: 0;
+  color: #7b8798;
+  font-size: 0.95rem;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.95rem;
+  color: #2d3645;
+}
+
+.primary {
+  border: none;
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: linear-gradient(120deg, #101722, #233149);
+  color: #fff;
+  font-size: 1rem;
   font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
   cursor: pointer;
+  align-self: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 14px 30px rgba(23, 34, 54, 0.28);
 }
 
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
+.primary:hover {
+  transform: translateY(-1px);
 }
 
-input,
-button {
-  outline: none;
+.pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #6a8cff;
+  box-shadow: 0 0 0 6px rgba(106, 140, 255, 0.18);
+  animation: pulse 1.6s ease-in-out infinite;
 }
 
-#greet-input {
-  margin-right: 5px;
+.pulse.done {
+  background: #2db67d;
+  box-shadow: 0 0 0 6px rgba(45, 182, 125, 0.18);
+  animation: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+@keyframes glide {
+  0% {
+    transform: translateX(-30%);
+    width: 35%;
+  }
+  50% {
+    transform: translateX(60%);
+    width: 55%;
+  }
+  100% {
+    transform: translateX(-30%);
+    width: 35%;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 24px;
   }
 
-  a:hover {
-    color: #24c8db;
+  .header {
+    grid-template-columns: 1fr;
+    text-align: center;
   }
 
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
+  .icon-wrap {
+    margin: 0 auto;
   }
-  button:active {
-    background-color: #0f0f0f69;
+
+  .footer {
+    justify-content: center;
   }
 }
-
 </style>
+
+
