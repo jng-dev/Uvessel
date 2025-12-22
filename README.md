@@ -76,6 +76,28 @@ The launcher itself is intentionally small and dumb. All setup happens at instal
 6. The resulting installer will be placed in `dist/`.
    This is the file you distribute to end users.
 
+### Build commands (local)
+
+```
+cargo build --release --manifest-path builder-rust/Cargo.toml
+.\builder-rust\target\release\uvessel-builder.exe
+```
+
+This produces `dist/<product_name>-installer.exe`.
+
+### Install location
+
+By default, installs go to:
+`%LOCALAPPDATA%\Uvessel\<product_name>`
+
+Optional override in `config.toml`:
+
+```
+# install_dir can be absolute or relative.
+# If relative, it is placed under LOCALAPPDATA\Uvessel.
+install_dir = "MyApps"
+```
+
 ---
 
 ## Persistent storage
