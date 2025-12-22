@@ -9,6 +9,7 @@ mod shim_payload;
 mod state;
 mod uv;
 mod config;
+mod updater_payload;
 
 use anyhow::Result;
 

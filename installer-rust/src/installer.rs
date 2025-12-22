@@ -1,11 +1,12 @@
 use anyhow::{bail, Context, Result};
+use semver::Version;
 use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Stdio},
 };
 
-use crate::{fs_ops, payload, shortcuts, shim_payload, state, uv};
+use crate::{fs_ops, payload, shortcuts, shim_payload, state, uv, updater_payload};
 
 pub fn run(root: &Path) -> Result<()> {
     let app_name = app_name_from_config();
@@ -47,18 +48,32 @@ pub fn run_with_deps(
     } else {
         None
     };
-    let same_version = existing_state
+    let version_relation = existing_state
         .as_ref()
-        .map(|st| st.launcher_version == crate::config::VERSION)
-        .unwrap_or(false);
+        .map(|st| compare_versions(&st.launcher_version, crate::config::VERSION))
+        .unwrap_or(VersionRelation::Unknown);
 
     let dest_exe = install_root.join(format!("{app_name}.exe"));
-    if same_version {
-        launch_fn(&dest_exe)?;
-        return Ok(());
+    match version_relation {
+        VersionRelation::Same => {
+            launch_fn(&dest_exe)?;
+            return Ok(());
+        }
+        VersionRelation::Older => {
+            bail!(
+                "installed version {} is newer than {}",
+                existing_state
+                    .as_ref()
+                    .map(|st| st.launcher_version.as_str())
+                    .unwrap_or("unknown"),
+                crate::config::VERSION
+            );
+        }
+        VersionRelation::Newer | VersionRelation::Unknown => {}
     }
 
     write_shim_exe(&dest_exe)?;
+    write_updater_exe(install_root)?;
 
     if existing_state.is_some() {
         remove_app_dir(install_root)?;
@@ -145,6 +160,31 @@ fn app_name_from_config() -> String {
     "UvesselApp".to_string()
 }
 
+#[derive(Debug, Clone, Copy)]
+enum VersionRelation {
+    Same,
+    Older,
+    Newer,
+    Unknown,
+}
+
+fn compare_versions(installed: &str, incoming: &str) -> VersionRelation {
+    if installed.trim() == incoming.trim() {
+        return VersionRelation::Same;
+    }
+    let installed = Version::parse(installed.trim());
+    let incoming = Version::parse(incoming.trim());
+    match (installed, incoming) {
+        (Ok(installed), Ok(incoming)) => match incoming.cmp(&installed) {
+            std::cmp::Ordering::Greater => VersionRelation::Newer,
+            std::cmp::Ordering::Less => VersionRelation::Older,
+            std::cmp::Ordering::Equal => VersionRelation::Same,
+        },
+        _ => VersionRelation::Unknown,
+    }
+}
+
+
 fn ensure_runtime_dirs(runtime: &Path) -> Result<()> {
     for d in ["cache", "python", "python-bin", "tools", "tool-bin", "venv", "logs"] {
         fs::create_dir_all(runtime.join(d))?;
@@ -226,6 +266,14 @@ fn write_shim_exe(dest_exe: &Path) -> Result<()> {
         bail!("embedded shim is empty");
     }
     fs_ops::write_bytes_with_retry(dest_exe, shim_payload::EMBEDDED_SHIM, 5)
+}
+
+fn write_updater_exe(install_root: &Path) -> Result<()> {
+    if updater_payload::EMBEDDED_UPDATER.is_empty() {
+        bail!("embedded updater is empty");
+    }
+    let dest = install_root.join("updater.exe");
+    fs_ops::write_bytes_with_retry(&dest, updater_payload::EMBEDDED_UPDATER, 5)
 }
 
 fn remove_app_dir(install_root: &Path) -> Result<()> {

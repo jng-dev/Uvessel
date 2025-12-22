@@ -41,9 +41,12 @@ fn main() -> Result<()> {
 
     let installer_dir = repo_root.join("installer-rust");
     let shim_dir = repo_root.join("launcher-rust");
+    let updater_dir = repo_root.join("updater-rust");
 
     build_launcher(&shim_dir)?;
+    build_updater(&updater_dir)?;
     stage_shim_for_installer(&shim_dir, &installer_dir)?;
+    stage_updater_for_installer(&updater_dir, &installer_dir)?;
     build_launcher(&installer_dir)?;
 
     let exe_name = format!("{}-installer", sanitize_exe_name(&config.product_name));
@@ -122,6 +125,19 @@ fn build_launcher(launcher_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+fn build_updater(updater_dir: &Path) -> Result<()> {
+    let status = Command::new("cargo")
+        .arg("build")
+        .arg("--release")
+        .current_dir(updater_dir)
+        .status()
+        .with_context(|| format!("build in {}", updater_dir.display()))?;
+    if !status.success() {
+        bail!("cargo build failed (exit {:?})", status.code());
+    }
+    Ok(())
+}
+
 fn stage_shim_for_installer(shim_dir: &Path, installer_dir: &Path) -> Result<()> {
     let shim_exe = shim_dir
         .join("target")
@@ -143,6 +159,26 @@ fn stage_shim_for_installer(shim_dir: &Path, installer_dir: &Path) -> Result<()>
     Ok(())
 }
 
+fn stage_updater_for_installer(updater_dir: &Path, installer_dir: &Path) -> Result<()> {
+    let updater_exe = updater_dir
+        .join("target")
+        .join("release")
+        .join("updater.exe");
+    if !updater_exe.exists() {
+        bail!("updater.exe not found at {}", updater_exe.display());
+    }
+    let embedded_dir = installer_dir.join("embedded");
+    fs::create_dir_all(&embedded_dir).context("create embedded dir")?;
+    let dest = embedded_dir.join("updater.exe");
+    fs::copy(&updater_exe, &dest).with_context(|| {
+        format!(
+            "copy {} -> {}",
+            updater_exe.display(),
+            dest.display()
+        )
+    })?;
+    Ok(())
+}
 fn sanitize_exe_name(name: &str) -> String {
     let trimmed = name.trim();
     let mut out = String::new();

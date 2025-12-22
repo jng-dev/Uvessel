@@ -76,6 +76,9 @@ The launcher itself is intentionally small and dumb. All setup happens at instal
 6. The resulting installer will be placed in `dist/`.
    This is the file you distribute to end users.
 
+   The GitHub Actions workflow also publishes a `latest.json` manifest alongside the installer
+   (used by the auto-updater).
+
 ### Build commands (local)
 
 ```
@@ -84,6 +87,12 @@ cargo build --release --manifest-path builder-rust/Cargo.toml
 ```
 
 This produces `dist/<product_name>-installer.exe`.
+
+To generate a local `latest.json` for update testing:
+
+```
+.\scripts\generate-latest-json.ps1
+```
 
 ### Install location
 

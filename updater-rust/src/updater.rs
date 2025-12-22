@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use semver::Version;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -44,13 +45,28 @@ fn run_inner() -> Result<UpdateOutcome> {
     }
 
     let manifest = fetch_manifest(&manifest_url)?;
-    if manifest.version.trim() == config::VERSION.trim() {
+    if !should_update(config::VERSION, &manifest.version) {
         return Ok(UpdateOutcome::NoUpdate);
     }
 
     let installer_path = download_installer(&manifest)?;
     run_installer(&installer_path)?;
     Ok(UpdateOutcome::InstallerLaunched)
+}
+
+fn should_update(current: &str, incoming: &str) -> bool {
+    if current.trim() == incoming.trim() {
+        return false;
+    }
+    let current = Version::parse(current.trim());
+    let incoming = Version::parse(incoming.trim());
+    match (current, incoming) {
+        (Ok(current), Ok(incoming)) => incoming > current,
+        _ => {
+            eprintln!("warning: cannot compare versions; skipping update");
+            false
+        }
+    }
 }
 
 fn resolve_manifest_url() -> String {
