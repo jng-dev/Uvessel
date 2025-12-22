@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
+use crate::config;
 
 pub fn self_path() -> Result<PathBuf> {
     Ok(std::env::current_exe().context("current_exe")?)
@@ -16,6 +17,15 @@ pub fn root_dir() -> Result<PathBuf> {
 pub fn default_install_root(app_name: &str) -> Result<PathBuf> {
     if app_name.is_empty() {
         bail!("app_name is empty");
+    }
+    let custom = config::INSTALL_DIR.trim();
+    if !custom.is_empty() {
+        let base = PathBuf::from(custom);
+        if base.is_absolute() {
+            return Ok(base.join(app_name));
+        }
+        let local = std::env::var("LOCALAPPDATA").context("LOCALAPPDATA not set")?;
+        return Ok(PathBuf::from(local).join("Uvessel").join(base).join(app_name));
     }
     let local = std::env::var("LOCALAPPDATA").context("LOCALAPPDATA not set")?;
     Ok(PathBuf::from(local).join("Uvessel").join(app_name))

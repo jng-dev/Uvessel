@@ -16,6 +16,9 @@ entry_point = "main.py"
 # Assets
 icon = "assets/game.ico"
 
+# Optional: custom install root. If relative, resolves under LOCALAPPDATA\Uvessel.
+# install_dir = "MyApps"
+
 # Distribution / updates
 python_git_link = "https://example.com/your-app-repo.git"
 uvessel_instance_link = "https://github.com/yourname/uvessel/releases"

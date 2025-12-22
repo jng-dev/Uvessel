@@ -20,6 +20,8 @@ struct Config {
     icon: String,
     #[serde(default)]
     uvessel_instance_link: String,
+    #[serde(default)]
+    install_dir: String,
 }
 
 fn main() -> Result<()> {

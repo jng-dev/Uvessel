@@ -2,7 +2,6 @@
 
 mod fs_ops;
 mod installer;
-mod logging;
 mod paths;
 mod payload;
 mod shortcuts;
@@ -15,6 +14,5 @@ use anyhow::Result;
 
 fn main() -> Result<()> {
     let root = paths::root_dir()?;
-    logging::init(&root)?;
     installer::run(&root)
 }

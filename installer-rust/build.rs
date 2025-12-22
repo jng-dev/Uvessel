@@ -109,6 +109,8 @@ struct Config {
     icon: String,
     #[serde(default)]
     uvessel_instance_link: String,
+    #[serde(default)]
+    install_dir: String,
 }
 
 fn load_config(repo_root: &Path) -> io::Result<Config> {
@@ -181,6 +183,11 @@ fn write_config_rs(out_dir: &Path, config: &Config) -> io::Result<()> {
         file,
         "pub const UVESSEL_INSTANCE_LINK: &str = {:?};",
         config.uvessel_instance_link
+    )?;
+    writeln!(
+        file,
+        "pub const INSTALL_DIR: &str = {:?};",
+        config.install_dir
     )?;
     Ok(())
 }
