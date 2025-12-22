@@ -12,8 +12,8 @@ fn main() {
     let repo_root = manifest_dir.join("..");
     let app_dir = repo_root.join("app");
     println!("cargo:rerun-if-changed={}", app_dir.display());
-    let out_path = PathBuf::from(out_dir).join("app_payload.zip");
-    let root_dir = app_dir.parent().unwrap_or(app_dir);
+    let out_path = PathBuf::from(&out_dir).join("app_payload.zip");
+    let root_dir = app_dir.parent().unwrap_or(&app_dir);
     let config = load_config(&repo_root).unwrap_or_else(|err| {
         panic!("failed to load config.toml: {err}");
     });
@@ -30,7 +30,7 @@ fn main() {
         panic!("failed to embed icon: {err}");
     }
 
-    if let Err(err) = write_config_rs(&PathBuf::from(out_dir), &config) {
+    if let Err(err) = write_config_rs(&PathBuf::from(&out_dir), &config) {
         panic!("failed to write config: {err}");
     }
 }

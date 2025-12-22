@@ -14,7 +14,7 @@ version = "1.0.0"
 entry_point = "main.py"
 
 # Assets
-icon = "assets/icon.ico"
+icon = "assets/game.ico"
 
 # Distribution / updates
 python_git_link = "https://example.com/your-app-repo.git"

@@ -24,12 +24,14 @@ struct Config {
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
-    let repo_root = env::current_dir().context("current_dir")?;
+    let repo_root = find_repo_root()?;
     let config_path = parse_arg(&args, "--config")
         .map(PathBuf::from)
+        .map(|p| absolutize_path(&repo_root, p))
         .unwrap_or_else(|| repo_root.join("config.toml"));
     let out_dir = parse_arg(&args, "--out-dir")
         .map(PathBuf::from)
+        .map(|p| absolutize_path(&repo_root, p))
         .unwrap_or_else(|| repo_root.join("dist"));
 
     let config = load_config(&config_path)?;
@@ -129,5 +131,92 @@ fn sanitize_exe_name(name: &str) -> String {
         "UvesselApp".to_string()
     } else {
         out
+    }
+}
+
+fn absolutize_path(repo_root: &Path, path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        repo_root.join(path)
+    }
+}
+
+fn find_repo_root() -> Result<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(cwd) = env::current_dir() {
+        candidates.push(cwd);
+    }
+    if let Ok(exe) = env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.to_path_buf());
+        }
+    }
+
+    for start in candidates {
+        if let Some(root) = find_upwards(&start) {
+            return Ok(root);
+        }
+    }
+
+    bail!("could not locate repo root (config.toml not found)");
+}
+
+fn find_upwards(start: &Path) -> Option<PathBuf> {
+    let mut cur = Some(start);
+    while let Some(dir) = cur {
+        if dir.join("config.toml").exists() && dir.join("launcher-rust").is_dir() {
+            return Some(dir.to_path_buf());
+        }
+        cur = dir.parent();
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_exe_name_replaces_bad_chars() {
+        let name = "My:App*Name?.exe";
+        let out = sanitize_exe_name(name);
+        assert_eq!(out, "My_App_Name_.exe");
+    }
+
+    #[test]
+    fn sanitize_exe_name_falls_back_on_empty() {
+        let out = sanitize_exe_name("   ");
+        assert_eq!(out, "UvesselApp");
+    }
+
+    #[test]
+    fn require_field_rejects_blank() {
+        let err = require_field("name", "   ").unwrap_err();
+        assert!(err.to_string().contains("config field name is required"));
+    }
+
+    #[test]
+    fn parse_arg_finds_value() {
+        let args = vec![
+            "cmd".to_string(),
+            "--out-dir".to_string(),
+            "dist".to_string(),
+        ];
+        assert_eq!(parse_arg(&args, "--out-dir"), Some("dist".to_string()));
+    }
+
+    #[test]
+    fn absolutize_path_keeps_absolute() {
+        let repo = Path::new(r"C:\Repo");
+        let out = absolutize_path(repo, PathBuf::from(r"C:\Out"));
+        assert_eq!(out, PathBuf::from(r"C:\Out"));
+    }
+
+    #[test]
+    fn absolutize_path_makes_relative() {
+        let repo = Path::new(r"C:\Repo");
+        let out = absolutize_path(repo, PathBuf::from("dist"));
+        assert_eq!(out, PathBuf::from(r"C:\Repo\dist"));
     }
 }
