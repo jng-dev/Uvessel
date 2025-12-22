@@ -37,11 +37,11 @@ fn main() -> Result<()> {
     let config = load_config(&config_path)?;
     validate_config(&config, &repo_root)?;
 
-    let launcher_dir = repo_root.join("launcher-rust");
-    build_launcher(&launcher_dir)?;
+    let installer_dir = repo_root.join("installer-rust");
+    build_launcher(&installer_dir)?;
 
     let exe_name = sanitize_exe_name(&config.product_name);
-    let built_exe = launcher_dir
+    let built_exe = installer_dir
         .join("target")
         .join("release")
         .join("launcher.exe");
@@ -165,7 +165,7 @@ fn find_repo_root() -> Result<PathBuf> {
 fn find_upwards(start: &Path) -> Option<PathBuf> {
     let mut cur = Some(start);
     while let Some(dir) = cur {
-        if dir.join("config.toml").exists() && dir.join("launcher-rust").is_dir() {
+        if dir.join("config.toml").exists() && dir.join("installer-rust").is_dir() {
             return Some(dir.to_path_buf());
         }
         cur = dir.parent();

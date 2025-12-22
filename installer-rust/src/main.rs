@@ -1,14 +1,19 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod fs_ops;
+mod installer;
 mod logging;
 mod paths;
-mod runner;
+mod payload;
+mod shortcuts;
 mod state;
+mod uv;
+mod config;
 
 use anyhow::Result;
 
 fn main() -> Result<()> {
     let root = paths::root_dir()?;
     logging::init(&root)?;
-    runner::run(&root)
+    installer::run(&root)
 }
