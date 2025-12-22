@@ -110,6 +110,10 @@ struct Config {
     #[serde(default)]
     uvessel_instance_link: String,
     #[serde(default)]
+    auto_update_enabled: bool,
+    #[serde(default)]
+    update_manifest_url: String,
+    #[serde(default)]
     install_dir: String,
 }
 
@@ -183,6 +187,16 @@ fn write_config_rs(out_dir: &Path, config: &Config) -> io::Result<()> {
         file,
         "pub const UVESSEL_INSTANCE_LINK: &str = {:?};",
         config.uvessel_instance_link
+    )?;
+    writeln!(
+        file,
+        "pub const AUTO_UPDATE_ENABLED: bool = {:?};",
+        config.auto_update_enabled
+    )?;
+    writeln!(
+        file,
+        "pub const UPDATE_MANIFEST_URL: &str = {:?};",
+        config.update_manifest_url
     )?;
     writeln!(
         file,

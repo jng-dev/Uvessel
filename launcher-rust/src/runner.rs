@@ -15,6 +15,10 @@ pub fn run_with_executor(
     root: &Path,
     mut exec: impl FnMut(&mut Command) -> Result<ExitStatus>,
 ) -> Result<()> {
+    if let UpdateDecision::ExitForUpdate = maybe_run_updater(root)? {
+        return Ok(());
+    }
+
     let uv = root.join("uv.exe");
     if !uv.exists() {
         bail!("uv.exe not found next to launcher at {}", uv.display());
@@ -114,6 +118,43 @@ fn build_uv_cmd(uv: &Path, proj: &Path, runtime: &Path) -> Command {
         c.creation_flags(CREATE_NO_WINDOW);
     }
     c
+}
+
+enum UpdateDecision {
+    Continue,
+    ExitForUpdate,
+}
+
+fn maybe_run_updater(root: &Path) -> Result<UpdateDecision> {
+    let updater = root.join("updater.exe");
+    if !updater.exists() {
+        return Ok(UpdateDecision::Continue);
+    }
+
+    let mut cmd = Command::new(&updater);
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let status = cmd.status().context("run updater")?;
+    if let Some(code) = status.code() {
+        if code == 10 {
+            return Ok(UpdateDecision::ExitForUpdate);
+        }
+        if code != 0 {
+            eprintln!("warning: updater exited with {code}");
+        }
+    } else if !status.success() {
+        eprintln!("warning: updater exit status unknown");
+    }
+
+    Ok(UpdateDecision::Continue)
 }
 
 fn uv_env_pairs(runtime: &Path) -> Vec<(String, String)> {

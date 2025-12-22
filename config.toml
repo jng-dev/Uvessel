@@ -20,5 +20,6 @@ icon = "assets/game.ico"
 # install_dir = "MyApps"
 
 # Distribution / updates
-python_git_link = "https://example.com/your-app-repo.git"
 uvessel_instance_link = "https://github.com/yourname/uvessel/releases"
+auto_update_enabled = true
+update_manifest_url = "https://github.com/yourname/uvessel/releases/latest/download/latest.json"
