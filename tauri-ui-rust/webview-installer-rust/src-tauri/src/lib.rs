@@ -6,6 +6,7 @@ struct InstallUiInfo {
     name: String,
     icon_path: Option<String>,
     done_file: Option<String>,
+    is_update: bool,
 }
 
 #[tauri::command]
@@ -33,6 +34,7 @@ fn parse_args() -> InstallUiInfo {
     let mut name = "Installing...".to_string();
     let mut icon_path = None;
     let mut done_file = None;
+    let mut is_update = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -57,6 +59,9 @@ fn parse_args() -> InstallUiInfo {
                     }
                 }
             }
+            "--from-update" => {
+                is_update = true;
+            }
             _ => {}
         }
     }
@@ -64,6 +69,7 @@ fn parse_args() -> InstallUiInfo {
         name,
         icon_path,
         done_file,
+        is_update,
     }
 }
 
@@ -75,7 +81,12 @@ pub fn run() {
         .manage(info.clone())
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_title(&format!("Installing {}", info.name));
+                let title = if info.is_update {
+                    format!("Updating {}", info.name)
+                } else {
+                    format!("Installing {}", info.name)
+                };
+                let _ = window.set_title(&title);
                 if let Some(icon_path) = info.icon_path.as_ref() {
                     if let Ok(image) = tauri::image::Image::from_path(icon_path) {
                         let _ = window.set_icon(image);

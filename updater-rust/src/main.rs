@@ -1,4 +1,5 @@
 mod config;
+mod ui_payload;
 mod updater;
 
 use anyhow::Result;

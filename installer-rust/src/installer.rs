@@ -8,12 +8,12 @@ use std::{
 
 use crate::{fs_ops, payload, shortcuts, shim_payload, state, ui_payload, uv, updater_payload};
 
-pub fn run(root: &Path) -> Result<()> {
+pub fn run(root: &Path, from_update: bool) -> Result<()> {
     let app_name = app_name_from_config();
     let install_root = crate::paths::default_install_root(&app_name)?;
 
     let done_marker = create_done_marker_path();
-    let mut ui_child = match launch_installer_ui(&app_name, Some(&done_marker)) {
+    let mut ui_child = match launch_installer_ui(&app_name, Some(&done_marker), from_update) {
         Ok(child) => child,
         Err(err) => {
             eprintln!("warning: failed to launch installer ui: {err}");
@@ -184,7 +184,11 @@ fn app_name_from_config() -> String {
     "UvesselApp".to_string()
 }
 
-fn launch_installer_ui(app_name: &str, done_marker: Option<&Path>) -> Result<Option<std::process::Child>> {
+fn launch_installer_ui(
+    app_name: &str,
+    done_marker: Option<&Path>,
+    from_update: bool,
+) -> Result<Option<std::process::Child>> {
     if ui_payload::EMBEDDED_INSTALLER_UI.is_empty() {
         return Ok(None);
     }
@@ -199,6 +203,9 @@ fn launch_installer_ui(app_name: &str, done_marker: Option<&Path>) -> Result<Opt
     }
     if let Some(marker) = done_marker {
         cmd.arg("--done-file").arg(marker);
+    }
+    if from_update {
+        cmd.arg("--from-update");
     }
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())

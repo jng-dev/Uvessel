@@ -7,6 +7,9 @@ use std::{
 
 #[derive(Debug, Deserialize)]
 struct Config {
+    app_id: String,
+    name: String,
+    product_name: String,
     version: String,
     #[serde(default)]
     uvessel_instance_link: String,
@@ -14,6 +17,8 @@ struct Config {
     auto_update_enabled: bool,
     #[serde(default)]
     update_manifest_url: String,
+    #[serde(default)]
+    icon: String,
 }
 
 fn main() {
@@ -23,6 +28,15 @@ fn main() {
     let config = load_config(&repo_root).unwrap_or_else(|err| {
         panic!("failed to load config.toml: {err}");
     });
+
+    let ui_path = manifest_dir.join("embedded").join("updater-ui.exe");
+    println!("cargo:rerun-if-changed={}", ui_path.display());
+    if !ui_path.exists() {
+        panic!(
+            "embedded updater ui not found at {} (build the updater ui first)",
+            ui_path.display()
+        );
+    }
 
     if let Err(err) = write_config_rs(&PathBuf::from(std::env::var("OUT_DIR").unwrap()), &config) {
         panic!("failed to write config: {err}");
@@ -41,6 +55,13 @@ fn load_config(repo_root: &Path) -> io::Result<Config> {
 fn write_config_rs(out_dir: &Path, config: &Config) -> io::Result<()> {
     let out_path = out_dir.join("uvessel_config.rs");
     let mut file = fs::File::create(&out_path)?;
+    writeln!(file, "pub const APP_ID: &str = {:?};", config.app_id)?;
+    writeln!(file, "pub const NAME: &str = {:?};", config.name)?;
+    writeln!(
+        file,
+        "pub const PRODUCT_NAME: &str = {:?};",
+        config.product_name
+    )?;
     writeln!(file, "pub const VERSION: &str = {:?};", config.version)?;
     writeln!(
         file,
@@ -57,5 +78,6 @@ fn write_config_rs(out_dir: &Path, config: &Config) -> io::Result<()> {
         "pub const UPDATE_MANIFEST_URL: &str = {:?};",
         config.update_manifest_url
     )?;
+    writeln!(file, "pub const ICON: &str = {:?};", config.icon)?;
     Ok(())
 }

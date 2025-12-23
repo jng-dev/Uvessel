@@ -16,5 +16,6 @@ use anyhow::Result;
 
 fn main() -> Result<()> {
     let root = paths::root_dir()?;
-    installer::run(&root)
+    let from_update = std::env::args().any(|arg| arg == "--from-update");
+    installer::run(&root, from_update)
 }

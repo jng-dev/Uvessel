@@ -6,10 +6,11 @@ use std::{
     fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Child, Command},
 };
 
 use crate::config;
+use crate::ui_payload;
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
@@ -49,7 +50,12 @@ fn run_inner() -> Result<UpdateOutcome> {
         return Ok(UpdateOutcome::NoUpdate);
     }
 
+    let app_name = app_display_name();
+    let icon_path = resolve_icon_path()?;
+    let mut ui_guard = launch_update_ui(&app_name, icon_path.as_deref())?;
+
     let installer_path = download_installer(&manifest)?;
+    ui_guard.close();
     run_installer(&installer_path)?;
     Ok(UpdateOutcome::InstallerLaunched)
 }
@@ -144,8 +150,104 @@ fn normalize_hex(value: &str) -> String {
 
 fn run_installer(path: &Path) -> Result<()> {
     Command::new(path)
+        .arg("--from-update")
         .spawn()
         .with_context(|| format!("launch installer {}", path.display()))?;
     Ok(())
+}
+
+fn app_display_name() -> String {
+    let product = config::PRODUCT_NAME.trim();
+    if !product.is_empty() {
+        return product.to_string();
+    }
+    let name = config::NAME.trim();
+    if !name.is_empty() {
+        return name.to_string();
+    }
+    "UvesselApp".to_string()
+}
+
+fn resolve_icon_path() -> Result<Option<PathBuf>> {
+    let icon = config::ICON.trim();
+    if icon.is_empty() {
+        return Ok(None);
+    }
+    let icon_path = Path::new(icon);
+    if icon_path.is_absolute() {
+        return Ok(icon_path.exists().then(|| icon_path.to_path_buf()));
+    }
+    let exe = std::env::current_exe().context("current_exe")?;
+    let root = exe.parent().context("exe has no parent")?;
+    let candidate = root.join(icon_path);
+    Ok(candidate.exists().then_some(candidate))
+}
+
+struct UiGuard {
+    child: Option<Child>,
+    path: Option<PathBuf>,
+}
+
+impl UiGuard {
+    fn close(&mut self) {
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if let Some(path) = self.path.as_ref() {
+            let _ = std::fs::remove_file(path);
+        }
+        self.child = None;
+        self.path = None;
+    }
+}
+
+impl Drop for UiGuard {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+fn launch_update_ui(app_name: &str, icon_path: Option<&Path>) -> Result<UiGuard> {
+    if ui_payload::EMBEDDED_UPDATER_UI.is_empty() {
+        return Ok(UiGuard {
+            child: None,
+            path: None,
+        });
+    }
+
+    let ui_path = write_update_ui_exe()?;
+    let mut cmd = Command::new(&ui_path);
+    cmd.arg("--name").arg(app_name);
+    if let Some(icon_path) = icon_path {
+        cmd.arg("--icon").arg(icon_path);
+    }
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let child = cmd.spawn().context("spawn updater ui")?;
+    Ok(UiGuard {
+        child: Some(child),
+        path: Some(ui_path),
+    })
+}
+
+fn write_update_ui_exe() -> Result<PathBuf> {
+    let file = tempfile::Builder::new()
+        .prefix("uvessel-updater-ui-")
+        .suffix(".exe")
+        .tempfile()
+        .context("create temp updater ui")?;
+    let (_, path) = file.keep().context("persist temp updater ui")?;
+    std::fs::write(&path, ui_payload::EMBEDDED_UPDATER_UI)
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(path)
 }
 
