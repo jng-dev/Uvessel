@@ -3,6 +3,11 @@
   import { invoke } from "@tauri-apps/api/core";
   import { Image } from "@tauri-apps/api/image";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import InstallerHeader from "$lib/components/InstallerHeader.svelte";
+  import ProgressMeter from "$lib/components/ProgressMeter.svelte";
+  import LogPanel from "$lib/components/LogPanel.svelte";
+  import StatusFooter from "$lib/components/StatusFooter.svelte";
+  import ActionButtons from "$lib/components/ActionButtons.svelte";
 
   type InstallUiInfo = {
     name: string;
@@ -27,6 +32,33 @@
   let pollTimer: number | undefined;
   let logTimer: number | undefined;
   let didAutoClose = false;
+
+  $: eyebrow = isUpdate ? "Updating" : "Installing";
+  $: subtitle = isFailed
+    ? "Installation failed. Please check the log."
+    : isDone
+      ? isUpdate
+        ? "Update complete. Restarting shortly."
+        : "Install complete. Click launch to continue."
+      : isUpdate
+        ? "Applying the latest release."
+        : "Setting things up for the first run.";
+  $: note = isFailed
+    ? "Something went wrong. You can close and retry."
+    : isDone
+      ? isUpdate
+        ? "Update applied. Finishing up."
+        : "All set. You're ready to launch."
+      : "This can take a minute. We'll let you know when it's ready.";
+  $: footerText = isFailed
+    ? "Install failed"
+    : isDone
+      ? isUpdate
+        ? "Update complete"
+        : "Ready to launch"
+      : "Preparing runtime environment";
+  $: showLaunch = isDone && !isUpdate;
+  $: showClose = isFailed || showLaunch;
 
   async function loadIcon(path: string) {
     try {
@@ -156,103 +188,38 @@
     }
     await closeWindow();
   }
-
 </script>
 
 <main class="shell" class:updating={isUpdate}>
   <div class="titlebar" data-tauri-drag-region>
-    <span class="title" data-tauri-drag-region>{isUpdate ? "Updating" : "Installing"}</span>
+    <span class="title" data-tauri-drag-region>{eyebrow}</span>
   </div>
 
   <section class="card" class:with-log={logEnabled}>
-    <div class="header">
-      <div class="icon-wrap">
-        {#if iconUrl}
-          <img class="icon" src={iconUrl} alt="App icon" />
-        {:else}
-          <div class="icon-fallback">{initial}</div>
-        {/if}
-      </div>
-      <div class="title-block">
-        <p class="eyebrow">{isUpdate ? "Updating" : "Installing"}</p>
-        <h1>{appName}</h1>
-        {#if versionLabel}
-          <p class="version">{versionLabel}</p>
-        {/if}
-        <p class="subtitle">
-          {isFailed
-            ? "Installation failed. Please check the log."
-            : isDone
-              ? isUpdate
-                ? "Update complete. Restarting shortly."
-                : "Install complete. Click launch to continue."
-              : isUpdate
-                ? "Applying the latest release."
-                : "Setting things up for the first run."}
-        </p>
-      </div>
-    </div>
+    <InstallerHeader
+      {appName}
+      {versionLabel}
+      {eyebrow}
+      {subtitle}
+      {iconUrl}
+      {initial}
+    />
 
-    <div class="meter">
-      <div class="track">
-        <div class="fill" class:done={isDone}></div>
-      </div>
-      <p class="note">
-        {isFailed
-          ? "Something went wrong. You can close and retry."
-          : isDone
-            ? isUpdate
-              ? "Update applied. Finishing up."
-              : "All set. You're ready to launch."
-            : "This can take a minute. We'll let you know when it's ready."}
-      </p>
-    </div>
+    <ProgressMeter isDone={isDone} {note} />
 
     {#if logEnabled}
-      <div class="log">
-        <div class="log-header">
-          <span>Installer log</span>
-          {#if isDone}
-            <span class="log-status">done</span>
-          {/if}
-        </div>
-        <pre class="log-body" bind:this={logBodyEl}>
-{logText || "Preparing installer..."}
-        </pre>
-      </div>
+      <LogPanel bind:logBodyEl {logText} isDone={isDone || isFailed} />
     {/if}
 
-    <div class="footer">
-      <span class="pulse" class:done={isDone}></span>
-      <span>
-        {isFailed
-          ? "Install failed"
-          : isDone
-            ? isUpdate
-              ? "Update complete"
-              : "Ready to launch"
-            : "Preparing runtime environment"}
-      </span>
-    </div>
+    <StatusFooter statusText={footerText} {isDone} {isFailed} />
 
-    {#if isDone && !isUpdate}
-      <div class="actions">
-        <button class="primary" on:click={launchAndClose}>
-          Launch {appName}
-        </button>
-        <button class="ghost" on:click={closeWindow}>
-          Close
-        </button>
-      </div>
-    {/if}
-
-    {#if isFailed}
-      <div class="actions">
-        <button class="ghost" on:click={closeWindow}>
-          Close
-        </button>
-      </div>
-    {/if}
+    <ActionButtons
+      {appName}
+      showLaunch={showLaunch}
+      showClose={showClose}
+      onLaunch={launchAndClose}
+      onClose={closeWindow}
+    />
   </section>
 </main>
 
@@ -283,9 +250,10 @@
 .shell {
   min-height: 100vh;
   background: linear-gradient(155deg, #f4f7fa 0%, #eef2f6 60%, #e6edf4 100%);
-  display: grid;
-  place-items: center;
-  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 42px 14px 14px;
   position: relative;
   overflow: hidden;
   --accent: #7aa2ff;
@@ -302,13 +270,13 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 36px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0 16px;
   color: #5f6a79;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   background: rgba(245, 248, 252, 0.8);
@@ -318,18 +286,19 @@
 }
 
 .card {
-  width: min(640px, calc(100vw - 48px));
-  max-height: calc(100vh - 96px);
+  width: min(640px, 100%);
+  height: calc(100vh - 64px);
+  max-height: 520px;
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(17, 27, 43, 0.08);
-  border-radius: 26px;
-  padding: 15px;
+  border-radius: 24px;
+  padding: 22px 24px;
   box-shadow:
     0 22px 50px rgba(18, 24, 40, 0.16),
     0 0 0 1px rgba(104, 140, 255, 0.08),
     0 0 24px rgba(104, 140, 255, 0.16);
   display: grid;
-  gap: 22px;
+  gap: 16px;
   overflow: hidden;
   animation: fadeUp 0.6s ease-out;
   backdrop-filter: blur(8px);
@@ -337,228 +306,6 @@
 
 .card.with-log {
   grid-template-rows: auto auto minmax(180px, 1fr) auto auto;
-  gap: 18px;
-}
-
-.header {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 20px;
-  align-items: center;
-}
-
-.icon-wrap {
-  width: 72px;
-  height: 72px;
-  border-radius: 22px;
-  background: linear-gradient(140deg, #101722, #1b2433);
-  display: grid;
-  place-items: center;
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.1);
-}
-
-.icon {
-  width: 52px;
-  height: 52px;
-  object-fit: contain;
-}
-
-.icon-fallback {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  background: linear-gradient(140deg, #ccd8e6, #b5c1d6);
-  color: #1b2330;
-  display: grid;
-  place-items: center;
-  font-weight: 600;
-  font-size: 1.4rem;
-}
-
-.eyebrow {
-  margin: 0;
-  font-size: 0.95rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: #7b8798;
-}
-
-h1 {
-  margin: 6px 0 6px;
-  font-size: clamp(2rem, 4vw, 2.8rem);
-  color: #18202c;
-}
-
-.subtitle {
-  margin: 0;
-  color: #6f7a8b;
-  font-size: 1.05rem;
-}
-
-.version {
-  margin: 0 0 8px;
-  font-size: 0.95rem;
-  color: #8b95a6;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.meter {
-  display: grid;
-  gap: 12px;
-}
-
-.log {
-  background: rgba(14, 18, 28, 0.9);
-  border-radius: 18px;
-  padding: 14px 16px;
-  color: #d6e1f0;
-  font-size: 0.85rem;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-  display: grid;
-  gap: 10px;
-  min-height: 0;
-}
-
-.log-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-size: 0.7rem;
-  color: rgba(214, 225, 240, 0.7);
-}
-
-.log-status {
-  color: #7df6c7;
-}
-
-.log-body {
-  margin: 0;
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  white-space: pre-wrap;
-  max-height: none;
-  min-height: 140px;
-  overflow-y: auto;
-}
-
-.log-body::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-
-.log-body {
-  scrollbar-width: none;
-}
-
-.track {
-  height: 10px;
-  background: rgba(17, 27, 43, 0.08);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.fill {
-  height: 100%;
-  width: 45%;
-  background: linear-gradient(90deg, var(--accent), #8fd3ff, var(--accent));
-  animation: glide 2.2s ease-in-out infinite;
-}
-
-.fill.done {
-  width: 100%;
-  animation: none;
-}
-
-.note {
-  margin: 0;
-  color: #7b8798;
-  font-size: 0.95rem;
-}
-
-.footer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.95rem;
-  color: #2d3645;
-}
-
-.primary {
-  border: none;
-  padding: 12px 18px;
-  border-radius: 999px;
-  background: linear-gradient(120deg, #101722, #233149);
-  color: #fff;
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  align-self: center;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  box-shadow: 0 14px 30px rgba(23, 34, 54, 0.28);
-}
-
-.actions {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-}
-
-.ghost {
-  border: 1px solid rgba(16, 23, 34, 0.18);
-  background: transparent;
-  color: #1b2330;
-  padding: 12px 18px;
-  border-radius: 999px;
-  font-size: 1rem;
-  cursor: pointer;
-}
-
-.primary:hover {
-  transform: translateY(-1px);
-}
-
-.pulse {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 0 6px var(--accent-soft);
-  animation: pulse 1.6s ease-in-out infinite;
-}
-
-.pulse.done {
-  background: #2db67d;
-  box-shadow: 0 0 0 6px rgba(45, 182, 125, 0.18);
-  animation: none;
-}
-
-@keyframes glide {
-  0% {
-    transform: translateX(-30%);
-    width: 35%;
-  }
-  50% {
-    transform: translateX(60%);
-    width: 55%;
-  }
-  100% {
-    transform: translateX(-30%);
-    width: 35%;
-  }
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 0.8;
-  }
-  50% {
-    transform: scale(1.2);
-    opacity: 1;
-  }
 }
 
 @keyframes fadeUp {
@@ -573,23 +320,13 @@ h1 {
 }
 
 @media (max-width: 640px) {
+  .shell {
+    padding: 38px 12px 12px;
+  }
+
   .card {
-    padding: 24px;
-  }
-
-  .header {
-    grid-template-columns: 1fr;
-    text-align: center;
-  }
-
-  .icon-wrap {
-    margin: 0 auto;
-  }
-
-  .footer {
-    justify-content: center;
+    height: calc(100vh - 56px);
+    padding: 20px;
   }
 }
 </style>
-
-
