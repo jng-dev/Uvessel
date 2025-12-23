@@ -1,0 +1,22 @@
+name: Build Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build builder
+        run: cargo build --release
+        working-directory: builder-rust
+
+      - name: Run builder (build-phase only)
+        run: .\builder-rust\target\release\uvessel-builder.exe --out-dir dist

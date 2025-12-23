@@ -13,10 +13,8 @@ fn main() {
     let app_dir = repo_root.join("app");
     println!("cargo:rerun-if-changed={}", app_dir.display());
     let shim_path = manifest_dir.join("embedded").join("launcher.exe");
-    let updater_path = manifest_dir.join("embedded").join("updater.exe");
     let ui_path = manifest_dir.join("embedded").join("installer-ui.exe");
     println!("cargo:rerun-if-changed={}", shim_path.display());
-    println!("cargo:rerun-if-changed={}", updater_path.display());
     println!("cargo:rerun-if-changed={}", ui_path.display());
     let out_path = PathBuf::from(&out_dir).join("app_payload.zip");
     let root_dir = app_dir.parent().unwrap_or(&app_dir);
@@ -28,12 +26,6 @@ fn main() {
         panic!(
             "embedded shim not found at {} (build the shim first)",
             shim_path.display()
-        );
-    }
-    if !updater_path.exists() {
-        panic!(
-            "embedded updater not found at {} (build the updater first)",
-            updater_path.display()
         );
     }
     if !ui_path.exists() {
@@ -124,12 +116,6 @@ struct Config {
     #[serde(default)]
     icon: String,
     #[serde(default)]
-    uvessel_instance_link: String,
-    #[serde(default)]
-    auto_update_enabled: bool,
-    #[serde(default)]
-    update_manifest_url: String,
-    #[serde(default)]
     install_dir: String,
 }
 
@@ -199,21 +185,6 @@ fn write_config_rs(out_dir: &Path, config: &Config) -> io::Result<()> {
     writeln!(file, "pub const VERSION: &str = {:?};", config.version)?;
     writeln!(file, "pub const ENTRY_POINT: &str = {:?};", config.entry_point)?;
     writeln!(file, "pub const ICON: &str = {:?};", config.icon)?;
-    writeln!(
-        file,
-        "pub const UVESSEL_INSTANCE_LINK: &str = {:?};",
-        config.uvessel_instance_link
-    )?;
-    writeln!(
-        file,
-        "pub const AUTO_UPDATE_ENABLED: bool = {:?};",
-        config.auto_update_enabled
-    )?;
-    writeln!(
-        file,
-        "pub const UPDATE_MANIFEST_URL: &str = {:?};",
-        config.update_manifest_url
-    )?;
     writeln!(
         file,
         "pub const INSTALL_DIR: &str = {:?};",

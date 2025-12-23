@@ -19,8 +19,6 @@ struct Config {
     #[serde(default)]
     icon: String,
     #[serde(default)]
-    uvessel_instance_link: String,
-    #[serde(default)]
     install_dir: String,
 }
 
@@ -41,20 +39,11 @@ fn main() -> Result<()> {
 
     let installer_dir = repo_root.join("installer-rust");
     let shim_dir = repo_root.join("launcher-rust");
-    let updater_dir = repo_root.join("updater-rust");
     let installer_ui_dir = repo_root.join("tauri-ui-rust").join("webview-installer-rust");
-    let updater_ui_dir = repo_root
-        .join("tauri-ui-rust")
-        .join("webview-updater-rust")
-        .join("src-tauri");
 
     build_launcher(&shim_dir)?;
-    build_updater_ui(&updater_ui_dir)?;
-    stage_updater_ui_for_updater(&updater_ui_dir, &updater_dir)?;
-    build_updater(&updater_dir)?;
     build_installer_ui(&installer_ui_dir)?;
     stage_shim_for_installer(&shim_dir, &installer_dir)?;
-    stage_updater_for_installer(&updater_dir, &installer_dir)?;
     stage_installer_ui_for_installer(&installer_ui_dir, &installer_dir)?;
     build_launcher(&installer_dir)?;
 
@@ -134,19 +123,6 @@ fn build_launcher(launcher_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn build_updater(updater_dir: &Path) -> Result<()> {
-    let status = Command::new("cargo")
-        .arg("build")
-        .arg("--release")
-        .current_dir(updater_dir)
-        .status()
-        .with_context(|| format!("build in {}", updater_dir.display()))?;
-    if !status.success() {
-        bail!("cargo build failed (exit {:?})", status.code());
-    }
-    Ok(())
-}
-
 fn stage_shim_for_installer(shim_dir: &Path, installer_dir: &Path) -> Result<()> {
     let shim_exe = shim_dir
         .join("target")
@@ -168,27 +144,6 @@ fn stage_shim_for_installer(shim_dir: &Path, installer_dir: &Path) -> Result<()>
     Ok(())
 }
 
-fn stage_updater_for_installer(updater_dir: &Path, installer_dir: &Path) -> Result<()> {
-    let updater_exe = updater_dir
-        .join("target")
-        .join("release")
-        .join("updater.exe");
-    if !updater_exe.exists() {
-        bail!("updater.exe not found at {}", updater_exe.display());
-    }
-    let embedded_dir = installer_dir.join("embedded");
-    fs::create_dir_all(&embedded_dir).context("create embedded dir")?;
-    let dest = embedded_dir.join("updater.exe");
-    fs::copy(&updater_exe, &dest).with_context(|| {
-        format!(
-            "copy {} -> {}",
-            updater_exe.display(),
-            dest.display()
-        )
-    })?;
-    Ok(())
-}
-
 fn build_installer_ui(ui_dir: &Path) -> Result<()> {
     if !ui_dir.exists() {
         bail!("installer ui dir not found at {}", ui_dir.display());
@@ -204,22 +159,6 @@ fn build_installer_ui(ui_dir: &Path) -> Result<()> {
     let status = run_npm(ui_dir, &["run", "tauri", "build"])?;
     if !status.success() {
         bail!("tauri build failed (exit {:?})", status.code());
-    }
-    Ok(())
-}
-
-fn build_updater_ui(ui_dir: &Path) -> Result<()> {
-    if !ui_dir.exists() {
-        bail!("updater ui dir not found at {}", ui_dir.display());
-    }
-    let status = Command::new("cargo")
-        .arg("build")
-        .arg("--release")
-        .current_dir(ui_dir)
-        .status()
-        .with_context(|| format!("build updater ui in {}", ui_dir.display()))?;
-    if !status.success() {
-        bail!("updater ui build failed (exit {:?})", status.code());
     }
     Ok(())
 }
@@ -260,23 +199,6 @@ fn stage_installer_ui_for_installer(ui_dir: &Path, installer_dir: &Path) -> Resu
     Ok(())
 }
 
-fn stage_updater_ui_for_updater(ui_dir: &Path, updater_dir: &Path) -> Result<()> {
-    let ui_exe = ui_dir.join("target").join("release").join("webview-updater-rust.exe");
-    if !ui_exe.exists() {
-        bail!("updater ui exe not found at {}", ui_exe.display());
-    }
-    let embedded_dir = updater_dir.join("embedded");
-    fs::create_dir_all(&embedded_dir).context("create embedded dir")?;
-    let dest = embedded_dir.join("updater-ui.exe");
-    fs::copy(&ui_exe, &dest).with_context(|| {
-        format!(
-            "copy {} -> {}",
-            ui_exe.display(),
-            dest.display()
-        )
-    })?;
-    Ok(())
-}
 fn sanitize_exe_name(name: &str) -> String {
     let trimmed = name.trim();
     let mut out = String::new();

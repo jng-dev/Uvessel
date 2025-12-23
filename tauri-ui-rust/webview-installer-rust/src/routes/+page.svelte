@@ -8,14 +8,12 @@
     name: string;
     icon_path?: string | null;
     done_file?: string | null;
-    is_update?: boolean;
   };
 
   let appName = "Your App";
   let iconUrl = "";
   let initial = "A";
   let isDone = false;
-  let isUpdate = false;
   let pollTimer: number | undefined;
 
   async function loadIcon(path: string) {
@@ -46,9 +44,6 @@
       if (info?.name) {
         appName = info.name;
         initial = info.name.trim().charAt(0).toUpperCase() || "A";
-      }
-      if (info?.is_update) {
-        isUpdate = true;
       }
       if (info?.icon_path) {
         await loadIcon(info.icon_path);
@@ -104,9 +99,7 @@
 
 <main class="shell">
   <div class="titlebar" data-tauri-drag-region on:mousedown={startDrag}>
-    <span class="title" data-tauri-drag-region>
-      {isUpdate ? "Updating" : "Installing"}
-    </span>
+    <span class="title" data-tauri-drag-region>Installing</span>
   </div>
 
   <section class="card">
@@ -119,14 +112,12 @@
         {/if}
       </div>
       <div class="title-block">
-        <p class="eyebrow">{isUpdate ? "Updating" : "Installing"}</p>
+        <p class="eyebrow">Installing</p>
         <h1>{appName}</h1>
         <p class="subtitle">
           {isDone
             ? "Install complete. Click launch to continue."
-            : isUpdate
-              ? "Applying the latest release."
-              : "Setting things up for the first run."}
+            : "Setting things up for the first run."}
         </p>
       </div>
     </div>
@@ -138,26 +129,18 @@
       <p class="note">
         {isDone
           ? "All set. You're ready to launch."
-          : isUpdate
-            ? "This usually finishes quickly."
-            : "This can take a minute. We'll let you know when it's ready."}
+          : "This can take a minute. We'll let you know when it's ready."}
       </p>
     </div>
 
     <div class="footer">
       <span class="pulse" class:done={isDone}></span>
-      <span>
-        {isDone
-          ? "Ready to launch"
-          : isUpdate
-            ? "Applying update"
-            : "Preparing runtime environment"}
-      </span>
+      <span>{isDone ? "Ready to launch" : "Preparing runtime environment"}</span>
     </div>
 
     {#if isDone}
       <button class="primary" on:click={closeWindow}>
-        {isUpdate ? "Launch updated app" : `Launch ${appName}`}
+        Launch {appName}
       </button>
     {/if}
   </section>

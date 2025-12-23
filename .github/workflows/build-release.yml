@@ -40,22 +40,6 @@ jobs:
       - name: Build launcher via builder
         run: .\builder-rust\target\release\uvessel-builder.exe --out-dir dist
 
-      - name: Generate latest.json manifest
-        run: |
-          $installer = Get-ChildItem dist\*-installer.exe | Select-Object -First 1
-          if (-not $installer) { throw "installer exe not found in dist" }
-          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
-          $version = "${{ steps.version.outputs.version }}"
-          $repo = "${{ github.repository }}"
-          $tag = "v$version"
-          $url = "https://github.com/$repo/releases/download/$tag/$($installer.Name)"
-          $manifest = @{
-            version = $version
-            installer_url = $url
-            sha256 = $hash
-          } | ConvertTo-Json -Depth 5
-          $manifest | Out-File -FilePath dist\latest.json -Encoding utf8
-
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -63,4 +47,3 @@ jobs:
           name: ${{ github.ref_name }}
           files: |
             dist/*-installer.exe
-            dist/latest.json

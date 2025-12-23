@@ -9,13 +9,11 @@ mod shim_payload;
 mod state;
 mod uv;
 mod config;
-mod updater_payload;
 mod ui_payload;
 
 use anyhow::Result;
 
 fn main() -> Result<()> {
     let root = paths::root_dir()?;
-    let from_update = std::env::args().any(|arg| arg == "--from-update");
-    installer::run(&root, from_update)
+    installer::run(&root)
 }

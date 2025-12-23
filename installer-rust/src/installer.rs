@@ -6,14 +6,14 @@ use std::{
     process::{Command, ExitStatus, Stdio},
 };
 
-use crate::{fs_ops, payload, shortcuts, shim_payload, state, ui_payload, uv, updater_payload};
+use crate::{fs_ops, payload, shortcuts, shim_payload, state, ui_payload, uv};
 
-pub fn run(root: &Path, from_update: bool) -> Result<()> {
+pub fn run(root: &Path) -> Result<()> {
     let app_name = app_name_from_config();
     let install_root = crate::paths::default_install_root(&app_name)?;
 
     let done_marker = create_done_marker_path();
-    let mut ui_child = match launch_installer_ui(&app_name, Some(&done_marker), from_update) {
+    let mut ui_child = match launch_installer_ui(&app_name, Some(&done_marker)) {
         Ok(child) => child,
         Err(err) => {
             eprintln!("warning: failed to launch installer ui: {err}");
@@ -99,7 +99,6 @@ pub fn run_with_deps(
     }
 
     write_shim_exe(&dest_exe)?;
-    write_updater_exe(install_root)?;
 
     if existing_state.is_some() {
         remove_app_dir(install_root)?;
@@ -187,7 +186,6 @@ fn app_name_from_config() -> String {
 fn launch_installer_ui(
     app_name: &str,
     done_marker: Option<&Path>,
-    from_update: bool,
 ) -> Result<Option<std::process::Child>> {
     if ui_payload::EMBEDDED_INSTALLER_UI.is_empty() {
         return Ok(None);
@@ -203,9 +201,6 @@ fn launch_installer_ui(
     }
     if let Some(marker) = done_marker {
         cmd.arg("--done-file").arg(marker);
-    }
-    if from_update {
-        cmd.arg("--from-update");
     }
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -366,14 +361,6 @@ fn write_shim_exe(dest_exe: &Path) -> Result<()> {
         bail!("embedded shim is empty");
     }
     fs_ops::write_bytes_with_retry(dest_exe, shim_payload::EMBEDDED_SHIM, 5)
-}
-
-fn write_updater_exe(install_root: &Path) -> Result<()> {
-    if updater_payload::EMBEDDED_UPDATER.is_empty() {
-        bail!("embedded updater is empty");
-    }
-    let dest = install_root.join("updater.exe");
-    fs_ops::write_bytes_with_retry(&dest, updater_payload::EMBEDDED_UPDATER, 5)
 }
 
 fn remove_app_dir(install_root: &Path) -> Result<()> {
