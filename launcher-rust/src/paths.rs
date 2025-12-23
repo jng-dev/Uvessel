@@ -13,6 +13,7 @@ pub fn root_dir() -> Result<PathBuf> {
     Ok(exe.parent().context("exe has no parent")?.to_path_buf())
 }
 
+#[cfg(test)]
 pub fn default_install_root(app_name: &str) -> Result<PathBuf> {
     if app_name.is_empty() {
         bail!("app_name is empty");
@@ -21,14 +22,17 @@ pub fn default_install_root(app_name: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(local).join("Uvessel").join(app_name))
 }
 
+#[cfg(test)]
 pub fn runtime_dir(root: &Path) -> PathBuf {
     root.join(".runtime")
 }
 
+#[cfg(test)]
 pub fn app_dir(root: &Path) -> PathBuf {
     root.join("app")
 }
 
+#[cfg(test)]
 pub fn uv_paths(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
     (
         root.join("uv.exe"),

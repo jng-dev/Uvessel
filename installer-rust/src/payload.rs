@@ -8,6 +8,7 @@ use tempfile::Builder;
 
 const EMBEDDED_PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app_payload.zip"));
 
+#[cfg(test)]
 pub fn install_payload(dest_root: &Path) -> Result<()> {
     if EMBEDDED_PAYLOAD.is_empty() {
         bail!("embedded payload is empty");

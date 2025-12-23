@@ -177,11 +177,8 @@ fn resolve_icon_path(repo_root: &Path, config: &Config) -> Option<PathBuf> {
 fn write_config_rs(out_dir: &Path, config: &Config) -> io::Result<()> {
     let out_path = out_dir.join("uvessel_config.rs");
     let mut file = File::create(&out_path)?;
-    writeln!(file, "pub const APP_ID: &str = {:?};", config.app_id)?;
     writeln!(file, "pub const NAME: &str = {:?};", config.name)?;
     writeln!(file, "pub const PRODUCT_NAME: &str = {:?};", config.product_name)?;
-    writeln!(file, "pub const COMPANY: &str = {:?};", config.company)?;
-    writeln!(file, "pub const DESCRIPTION: &str = {:?};", config.description)?;
     writeln!(file, "pub const VERSION: &str = {:?};", config.version)?;
     writeln!(file, "pub const ENTRY_POINT: &str = {:?};", config.entry_point)?;
     writeln!(file, "pub const ICON: &str = {:?};", config.icon)?;

@@ -38,6 +38,7 @@ fn temp_path_for(dest: &Path) -> Result<PathBuf> {
     Ok(parent.join(format!("{name}.tmp-{nonce}")))
 }
 
+#[cfg(test)]
 fn copy_file_atomic(src: &Path, dest: &Path) -> Result<()> {
     let tmp = temp_path_for(dest)?;
     fs::copy(src, &tmp)
@@ -51,6 +52,7 @@ fn copy_file_atomic(src: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn move_file_atomic(src: &Path, dest: &Path) -> Result<()> {
     if dest.exists() {
         fs::remove_file(dest)
@@ -73,10 +75,12 @@ fn write_bytes_atomic(dest: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub fn copy_file_with_retry(src: &Path, dest: &Path, attempts: usize) -> Result<()> {
     retry(|| copy_file_atomic(src, dest), attempts)
 }
 
+#[cfg(test)]
 pub fn move_file_with_retry(src: &Path, dest: &Path, attempts: usize) -> Result<()> {
     retry(|| move_file_atomic(src, dest), attempts)
 }

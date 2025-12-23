@@ -31,6 +31,7 @@ pub fn state_path(root: &Path) -> PathBuf {
     root.join(".runtime").join("state.json")
 }
 
+#[cfg(test)]
 pub fn state_exists(root: &Path) -> bool {
     state_path(root).exists()
 }
@@ -121,6 +122,7 @@ pub fn write_state(state_path: &Path, state: &State) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub fn read_or_init_state(state_path: &Path, root: &Path, proj: &Path) -> Result<State> {
     if state_path.exists() {
         return read_state(state_path);

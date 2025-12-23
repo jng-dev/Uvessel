@@ -31,14 +31,17 @@ pub fn default_install_root(app_name: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(local).join("Uvessel").join(app_name))
 }
 
+#[cfg(test)]
 pub fn runtime_dir(root: &Path) -> PathBuf {
     root.join(".runtime")
 }
 
+#[cfg(test)]
 pub fn app_dir(root: &Path) -> PathBuf {
     root.join("app")
 }
 
+#[cfg(test)]
 pub fn uv_paths(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
     (
         root.join("uv.exe"),

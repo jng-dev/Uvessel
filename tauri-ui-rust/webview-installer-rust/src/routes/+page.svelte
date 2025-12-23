@@ -87,18 +87,10 @@
     }
   }
 
-  async function startDrag(event: MouseEvent) {
-    if (event.button !== 0) return;
-    try {
-      await getCurrentWindow().startDragging();
-    } catch {
-      // Ignore drag errors.
-    }
-  }
 </script>
 
 <main class="shell">
-  <div class="titlebar" data-tauri-drag-region on:mousedown={startDrag}>
+  <div class="titlebar" data-tauri-drag-region>
     <span class="title" data-tauri-drag-region>Installing</span>
   </div>
 
