@@ -15,5 +15,5 @@ use anyhow::Result;
 
 fn main() -> Result<()> {
     let root = paths::root_dir()?;
-    installer::run(&root)
+    installer::run_from_args(&root)
 }

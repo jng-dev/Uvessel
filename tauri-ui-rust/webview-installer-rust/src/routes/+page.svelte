@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { Image } from "@tauri-apps/api/image";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -8,13 +8,25 @@
     name: string;
     icon_path?: string | null;
     done_file?: string | null;
+    version?: string | null;
+    mode?: string | null;
+    log_file?: string | null;
   };
 
   let appName = "Your App";
   let iconUrl = "";
   let initial = "A";
   let isDone = false;
+  let isUpdate = false;
+  let isFailed = false;
+  let versionLabel = "";
+  let logText = "";
+  let logOffset = 0;
+  let logEnabled = false;
+  let logBodyEl: HTMLPreElement | null = null;
   let pollTimer: number | undefined;
+  let logTimer: number | undefined;
+  let didAutoClose = false;
 
   async function loadIcon(path: string) {
     try {
@@ -45,15 +57,37 @@
         appName = info.name;
         initial = info.name.trim().charAt(0).toUpperCase() || "A";
       }
+      if (info?.version) {
+        versionLabel = `v${info.version}`;
+      }
+      if (info?.mode && info.mode.toLowerCase() === "update") {
+        isUpdate = true;
+      }
+      if (info?.log_file) {
+        logEnabled = true;
+      }
       if (info?.icon_path) {
         await loadIcon(info.icon_path);
       }
       if (info?.done_file) {
         pollTimer = window.setInterval(async () => {
           try {
-            const done = await invoke<boolean>("is_install_done");
-            if (done) {
+            const status = await invoke<{ status: string }>(
+              "get_install_status"
+            );
+            if (status?.status === "ok") {
               isDone = true;
+              isFailed = false;
+              if (pollTimer) {
+                clearInterval(pollTimer);
+              }
+              if (isUpdate && !didAutoClose) {
+                didAutoClose = true;
+                window.setTimeout(closeWindow, 600);
+              }
+            } else if (status?.status === "fail") {
+              isDone = false;
+              isFailed = true;
               if (pollTimer) {
                 clearInterval(pollTimer);
               }
@@ -66,6 +100,30 @@
     } catch {
       initial = appName.trim().charAt(0).toUpperCase() || "A";
     }
+    if (logEnabled) {
+      logTimer = window.setInterval(async () => {
+        try {
+          const chunk = await invoke<{ text: string; next_offset: number }>(
+            "read_install_log",
+            { offset: logOffset, maxBytes: 8192 }
+          );
+          if (chunk?.text) {
+            logOffset = chunk.next_offset;
+            logText = `${logText}${chunk.text}`;
+            const lines = logText.split("\n");
+            if (lines.length > 200) {
+              logText = lines.slice(-200).join("\n");
+            }
+            await tick();
+            if (logBodyEl) {
+              logBodyEl.scrollTop = logBodyEl.scrollHeight;
+            }
+          }
+        } catch {
+          // Ignore log polling errors.
+        }
+      }, 250);
+    }
     try {
       await getCurrentWindow().center();
     } catch {
@@ -77,6 +135,9 @@
     if (pollTimer) {
       clearInterval(pollTimer);
     }
+    if (logTimer) {
+      clearInterval(logTimer);
+    }
   });
 
   async function closeWindow() {
@@ -87,14 +148,23 @@
     }
   }
 
+  async function launchAndClose() {
+    try {
+      await invoke("mark_launch_requested");
+    } catch {
+      // Ignore mark errors.
+    }
+    await closeWindow();
+  }
+
 </script>
 
-<main class="shell">
+<main class="shell" class:updating={isUpdate}>
   <div class="titlebar" data-tauri-drag-region>
-    <span class="title" data-tauri-drag-region>Installing</span>
+    <span class="title" data-tauri-drag-region>{isUpdate ? "Updating" : "Installing"}</span>
   </div>
 
-  <section class="card">
+  <section class="card" class:with-log={logEnabled}>
     <div class="header">
       <div class="icon-wrap">
         {#if iconUrl}
@@ -104,36 +174,84 @@
         {/if}
       </div>
       <div class="title-block">
-        <p class="eyebrow">Installing</p>
+        <p class="eyebrow">{isUpdate ? "Updating" : "Installing"}</p>
         <h1>{appName}</h1>
+        {#if versionLabel}
+          <p class="version">{versionLabel}</p>
+        {/if}
         <p class="subtitle">
-          {isDone
-            ? "Install complete. Click launch to continue."
-            : "Setting things up for the first run."}
+          {isFailed
+            ? "Installation failed. Please check the log."
+            : isDone
+              ? isUpdate
+                ? "Update complete. Restarting shortly."
+                : "Install complete. Click launch to continue."
+              : isUpdate
+                ? "Applying the latest release."
+                : "Setting things up for the first run."}
         </p>
       </div>
     </div>
 
     <div class="meter">
       <div class="track">
-        <div class="fill"></div>
+        <div class="fill" class:done={isDone}></div>
       </div>
       <p class="note">
-        {isDone
-          ? "All set. You're ready to launch."
-          : "This can take a minute. We'll let you know when it's ready."}
+        {isFailed
+          ? "Something went wrong. You can close and retry."
+          : isDone
+            ? isUpdate
+              ? "Update applied. Finishing up."
+              : "All set. You're ready to launch."
+            : "This can take a minute. We'll let you know when it's ready."}
       </p>
     </div>
 
+    {#if logEnabled}
+      <div class="log">
+        <div class="log-header">
+          <span>Installer log</span>
+          {#if isDone}
+            <span class="log-status">done</span>
+          {/if}
+        </div>
+        <pre class="log-body" bind:this={logBodyEl}>
+{logText || "Preparing installer..."}
+        </pre>
+      </div>
+    {/if}
+
     <div class="footer">
       <span class="pulse" class:done={isDone}></span>
-      <span>{isDone ? "Ready to launch" : "Preparing runtime environment"}</span>
+      <span>
+        {isFailed
+          ? "Install failed"
+          : isDone
+            ? isUpdate
+              ? "Update complete"
+              : "Ready to launch"
+            : "Preparing runtime environment"}
+      </span>
     </div>
 
-    {#if isDone}
-      <button class="primary" on:click={closeWindow}>
-        Launch {appName}
-      </button>
+    {#if isDone && !isUpdate}
+      <div class="actions">
+        <button class="primary" on:click={launchAndClose}>
+          Launch {appName}
+        </button>
+        <button class="ghost" on:click={closeWindow}>
+          Close
+        </button>
+      </div>
+    {/if}
+
+    {#if isFailed}
+      <div class="actions">
+        <button class="ghost" on:click={closeWindow}>
+          Close
+        </button>
+      </div>
     {/if}
   </section>
 </main>
@@ -170,6 +288,13 @@
   padding: 24px;
   position: relative;
   overflow: hidden;
+  --accent: #7aa2ff;
+  --accent-soft: rgba(104, 140, 255, 0.18);
+}
+
+.shell.updating {
+  --accent: #57c2ff;
+  --accent-soft: rgba(87, 194, 255, 0.18);
 }
 
 .titlebar {
@@ -194,18 +319,25 @@
 
 .card {
   width: min(640px, calc(100vw - 48px));
+  max-height: calc(100vh - 96px);
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(17, 27, 43, 0.08);
   border-radius: 26px;
-  padding: 30px;
+  padding: 15px;
   box-shadow:
     0 22px 50px rgba(18, 24, 40, 0.16),
     0 0 0 1px rgba(104, 140, 255, 0.08),
     0 0 24px rgba(104, 140, 255, 0.16);
   display: grid;
   gap: 22px;
+  overflow: hidden;
   animation: fadeUp 0.6s ease-out;
   backdrop-filter: blur(8px);
+}
+
+.card.with-log {
+  grid-template-rows: auto auto minmax(180px, 1fr) auto auto;
+  gap: 18px;
 }
 
 .header {
@@ -263,9 +395,61 @@ h1 {
   font-size: 1.05rem;
 }
 
+.version {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  color: #8b95a6;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .meter {
   display: grid;
   gap: 12px;
+}
+
+.log {
+  background: rgba(14, 18, 28, 0.9);
+  border-radius: 18px;
+  padding: 14px 16px;
+  color: #d6e1f0;
+  font-size: 0.85rem;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.7rem;
+  color: rgba(214, 225, 240, 0.7);
+}
+
+.log-status {
+  color: #7df6c7;
+}
+
+.log-body {
+  margin: 0;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  white-space: pre-wrap;
+  max-height: none;
+  min-height: 140px;
+  overflow-y: auto;
+}
+
+.log-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.log-body {
+  scrollbar-width: none;
 }
 
 .track {
@@ -278,8 +462,13 @@ h1 {
 .fill {
   height: 100%;
   width: 45%;
-  background: linear-gradient(90deg, #7aa2ff, #8fd3ff, #7aa2ff);
+  background: linear-gradient(90deg, var(--accent), #8fd3ff, var(--accent));
   animation: glide 2.2s ease-in-out infinite;
+}
+
+.fill.done {
+  width: 100%;
+  animation: none;
 }
 
 .note {
@@ -310,6 +499,22 @@ h1 {
   box-shadow: 0 14px 30px rgba(23, 34, 54, 0.28);
 }
 
+.actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.ghost {
+  border: 1px solid rgba(16, 23, 34, 0.18);
+  background: transparent;
+  color: #1b2330;
+  padding: 12px 18px;
+  border-radius: 999px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
 .primary:hover {
   transform: translateY(-1px);
 }
@@ -318,8 +523,8 @@ h1 {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: #6a8cff;
-  box-shadow: 0 0 0 6px rgba(106, 140, 255, 0.18);
+  background: var(--accent);
+  box-shadow: 0 0 0 6px var(--accent-soft);
   animation: pulse 1.6s ease-in-out infinite;
 }
 

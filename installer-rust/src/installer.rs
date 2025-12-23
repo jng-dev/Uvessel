@@ -13,7 +13,17 @@ pub fn run(root: &Path) -> Result<()> {
     let install_root = crate::paths::default_install_root(&app_name)?;
 
     let done_marker = create_done_marker_path();
-    let mut ui_child = match launch_installer_ui(&app_name, Some(&done_marker)) {
+    let log_path = create_log_path();
+    let _ = init_log_file(&log_path);
+    let launch_marker = create_launch_marker_path();
+    let update_mode = detect_update_mode(&install_root)?;
+    let mut ui_child = match launch_installer_ui(
+        &app_name,
+        Some(&done_marker),
+        Some(&log_path),
+        Some(&launch_marker),
+        update_mode,
+    ) {
         Ok(child) => child,
         Err(err) => {
             eprintln!("warning: failed to launch installer ui: {err}");
@@ -27,7 +37,7 @@ pub fn run(root: &Path) -> Result<()> {
         &install_root,
         &app_name,
         uv::ensure_uv,
-        |cmd| cmd.status().context("spawn command"),
+        |cmd| exec_with_log(cmd, Some(&log_path)),
         |start_menu, name, target, icon| {
             shortcuts::create_start_menu_shortcut(start_menu, name, target, icon)
         },
@@ -35,17 +45,24 @@ pub fn run(root: &Path) -> Result<()> {
             pending_launch = Some(exe.to_path_buf());
             Ok(())
         },
+        Some(&log_path),
     );
 
     if result.is_ok() {
-        let _ = std::fs::write(&done_marker, "done");
+        let _ = std::fs::write(&done_marker, "ok");
+    } else {
+        let _ = std::fs::write(&done_marker, "fail");
     }
 
     if let Some(child) = ui_child.as_mut() {
         let _ = child.wait();
     }
 
-    if result.is_ok() {
+    let should_launch = std::fs::metadata(&launch_marker).is_ok();
+    let _ = std::fs::remove_file(&log_path);
+    let _ = std::fs::remove_file(&launch_marker);
+
+    if result.is_ok() && should_launch {
         if let Some(exe) = pending_launch {
             Command::new(&exe)
                 .spawn()
@@ -56,6 +73,20 @@ pub fn run(root: &Path) -> Result<()> {
     result
 }
 
+pub fn run_from_args(root: &Path) -> Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(target) = arg_value(&args, "--finalize-uninstall") {
+        let app_name = arg_value(&args, "--app-name");
+        return finalize_uninstall(Path::new(&target), app_name.as_deref());
+    }
+
+    if args.iter().any(|arg| arg == "--uninstall") || exe_name_is_uninstaller()? {
+        return run_uninstall(root);
+    }
+
+    run(root)
+}
+
 pub fn run_with_deps(
     _root: &Path,
     install_root: &Path,
@@ -64,7 +95,10 @@ pub fn run_with_deps(
     mut exec: impl FnMut(&mut Command) -> Result<ExitStatus>,
     create_shortcut_fn: impl Fn(&Path, &str, &Path, Option<&Path>) -> Result<PathBuf>,
     mut launch_fn: impl FnMut(&Path) -> Result<()>,
+    log_path: Option<&Path>,
 ) -> Result<()> {
+    let install_root_existed = install_root.exists();
+    log_line(log_path, &format!("Starting install for {app_name}"))?;
     fs::create_dir_all(install_root)
         .with_context(|| format!("create {}", install_root.display()))?;
 
@@ -82,6 +116,19 @@ pub fn run_with_deps(
     let dest_exe = install_root.join(format!("{app_name}.exe"));
     match version_relation {
         VersionRelation::Same => {
+            log_line(log_path, "Installed version matches, launching app")?;
+            let icon = resolve_icon_path(install_root);
+            if let Ok(start_menu) = shortcuts::default_start_menu_dir() {
+                let uninstall_name = format!("Uninstall {app_name}");
+                if let Ok(uninstall_exe) = ensure_uninstaller(install_root) {
+                    let _ = shortcuts::create_start_menu_shortcut(
+                        &start_menu,
+                        &uninstall_name,
+                        &uninstall_exe,
+                        icon.as_deref(),
+                    );
+                }
+            }
             launch_fn(&dest_exe)?;
             return Ok(());
         }
@@ -98,77 +145,113 @@ pub fn run_with_deps(
         VersionRelation::Newer | VersionRelation::Unknown => {}
     }
 
-    write_shim_exe(&dest_exe)?;
-
-    if existing_state.is_some() {
-        remove_app_dir(install_root)?;
-        remove_venv_dir(install_root)?;
-    }
-
-    payload::install_payload_with_options(
-        install_root,
-        payload::PayloadOptions {
-            skip_existing_data: true,
-        },
-    )?;
-
-    let icon = resolve_icon_path(install_root);
-
-    ensure_uv_fn(install_root)?;
-
-    let runtime = install_root.join(".runtime");
-    ensure_runtime_dirs(&runtime)?;
-
-    let proj = find_project(install_root)?;
-    let lock_path = proj.join("uv.lock");
-    let lock_mtime = if lock_path.exists() {
-        state::file_mtime_unix(&lock_path)?
+    let mut backup = if existing_state.is_some() {
+        log_line(log_path, "Existing install detected, preparing backup")?;
+        Some(UpgradeBackup::create(install_root)?)
     } else {
-        0
+        None
     };
 
-    let uv_exe = install_root.join("uv.exe");
-    if !uv_exe.exists() {
-        bail!("uv.exe not found after install at {}", uv_exe.display());
+    let install_result = (|| -> Result<()> {
+        log_line(log_path, "Writing launcher shim")?;
+        write_shim_exe(&dest_exe)?;
+
+        log_line(log_path, "Extracting payload")?;
+        payload::install_payload_with_options(
+            install_root,
+            payload::PayloadOptions {
+                skip_existing_data: true,
+            },
+        )?;
+
+        let icon = resolve_icon_path(install_root);
+
+        log_line(log_path, "Ensuring uv")?;
+        ensure_uv_fn(install_root)?;
+
+        let runtime = install_root.join(".runtime");
+        ensure_runtime_dirs(&runtime)?;
+
+        let proj = find_project(install_root)?;
+        let lock_path = proj.join("uv.lock");
+        let lock_mtime = if lock_path.exists() {
+            state::file_mtime_unix(&lock_path)?
+        } else {
+            0
+        };
+
+        let uv_exe = install_root.join("uv.exe");
+        if !uv_exe.exists() {
+            bail!("uv.exe not found after install at {}", uv_exe.display());
+        }
+
+        run_with_retry(
+            || {
+                let mut install = build_uv_cmd(&uv_exe, &proj, &runtime);
+                install.arg("python").arg("install");
+                if let Some(version) = read_python_version(&proj)? {
+                    install.arg(version);
+                }
+                exec(&mut install)
+            },
+            5,
+            "uv python install",
+        )?;
+
+        run_with_retry(
+            || {
+                let mut sync = build_uv_cmd(&uv_exe, &proj, &runtime);
+                sync.arg("sync");
+                if lock_path.exists() {
+                    sync.arg("--frozen");
+                }
+                exec(&mut sync)
+            },
+            5,
+            "uv sync",
+        )?;
+
+        log_line(log_path, "Cleaning runtime cache")?;
+        cleanup_uv_cache(&runtime)?;
+
+        let start_menu = shortcuts::default_start_menu_dir()?;
+        create_shortcut_fn(&start_menu, app_name, &dest_exe, icon.as_deref())?;
+        let uninstall_exe = ensure_uninstaller(install_root)?;
+        let uninstall_name = format!("Uninstall {app_name}");
+        shortcuts::create_start_menu_shortcut(
+            &start_menu,
+            &uninstall_name,
+            &uninstall_exe,
+            icon.as_deref(),
+        )?;
+
+        let mut st = state::default_state_for_project(install_root, &proj)?;
+        st.lock_mtime_unix = lock_mtime;
+        state::write_state(&state::state_path(install_root), &st)?;
+
+        log_line(log_path, "Launching application")?;
+        launch_fn(&dest_exe)?;
+        Ok(())
+    })();
+
+    match install_result {
+        Ok(()) => {
+            log_line(log_path, "Install completed successfully")?;
+            if let Some(mut backup) = backup.take() {
+                backup.cleanup()?;
+            }
+            Ok(())
+        }
+        Err(err) => {
+            let _ = log_line(log_path, &format!("Install failed: {err}"));
+            if let Some(mut backup) = backup.take() {
+                let _ = backup.restore();
+            } else if !install_root_existed {
+                let _ = fs::remove_dir_all(install_root);
+            }
+            Err(err)
+        }
     }
-
-    run_with_retry(
-        || {
-            let mut install = build_uv_cmd(&uv_exe, &proj, &runtime);
-            install.arg("python").arg("install");
-            if let Some(version) = read_python_version(&proj)? {
-                install.arg(version);
-            }
-            exec(&mut install)
-        },
-        5,
-        "uv python install",
-    )?;
-
-    run_with_retry(
-        || {
-            let mut sync = build_uv_cmd(&uv_exe, &proj, &runtime);
-            sync.arg("sync");
-            if lock_path.exists() {
-                sync.arg("--frozen");
-            }
-            exec(&mut sync)
-        },
-        5,
-        "uv sync",
-    )?;
-
-    cleanup_uv_cache(&runtime)?;
-
-    let start_menu = shortcuts::default_start_menu_dir()?;
-    create_shortcut_fn(&start_menu, app_name, &dest_exe, icon.as_deref())?;
-
-    let mut st = state::default_state_for_project(install_root, &proj)?;
-    st.lock_mtime_unix = lock_mtime;
-    state::write_state(&state::state_path(install_root), &st)?;
-
-    launch_fn(&dest_exe)?;
-    Ok(())
 }
 
 fn app_name_from_config() -> String {
@@ -183,9 +266,22 @@ fn app_name_from_config() -> String {
     "UvesselApp".to_string()
 }
 
+fn detect_update_mode(install_root: &Path) -> Result<bool> {
+    let state_path = state::state_path(install_root);
+    if !state_path.exists() {
+        return Ok(false);
+    }
+    let existing_state = state::read_state(&state_path)?;
+    let relation = compare_versions(&existing_state.launcher_version, crate::config::VERSION);
+    Ok(!matches!(relation, VersionRelation::Same))
+}
+
 fn launch_installer_ui(
     app_name: &str,
     done_marker: Option<&Path>,
+    log_path: Option<&Path>,
+    launch_marker: Option<&Path>,
+    update_mode: bool,
 ) -> Result<Option<std::process::Child>> {
     if ui_payload::EMBEDDED_INSTALLER_UI.is_empty() {
         return Ok(None);
@@ -196,11 +292,21 @@ fn launch_installer_ui(
 
     let mut cmd = Command::new(&ui_path);
     cmd.arg("--name").arg(app_name);
+    cmd.arg("--version").arg(crate::config::VERSION);
     if let Some(icon_path) = icon_path {
         cmd.arg("--icon").arg(icon_path);
     }
     if let Some(marker) = done_marker {
         cmd.arg("--done-file").arg(marker);
+    }
+    if let Some(log_path) = log_path {
+        cmd.arg("--log-file").arg(log_path);
+    }
+    if let Some(launch_marker) = launch_marker {
+        cmd.arg("--launch-file").arg(launch_marker);
+    }
+    if update_mode {
+        cmd.arg("--mode").arg("update");
     }
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -214,6 +320,73 @@ fn launch_installer_ui(
 
     let child = cmd.spawn().context("spawn installer ui")?;
     Ok(Some(child))
+}
+
+fn run_uninstall(_root: &Path) -> Result<()> {
+    let app_name = app_name_from_config();
+    let install_root = crate::paths::default_install_root(&app_name)?;
+    if !install_root.exists() {
+        return Ok(());
+    }
+
+    let current_exe = std::env::current_exe().context("resolve current exe")?;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp_exe = std::env::temp_dir().join(format!("uvessel-uninstall-{nonce}.exe"));
+    fs::copy(&current_exe, &temp_exe)
+        .with_context(|| format!("copy {} -> {}", current_exe.display(), temp_exe.display()))?;
+
+    let mut cmd = Command::new(&temp_exe);
+    cmd.arg("--finalize-uninstall")
+        .arg(&install_root)
+        .arg("--app-name")
+        .arg(&app_name)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd.spawn().context("spawn uninstall finalize")?;
+    Ok(())
+}
+
+fn finalize_uninstall(install_root: &Path, app_name: Option<&str>) -> Result<()> {
+    if let Some(name) = app_name {
+        if let Ok(start_menu) = shortcuts::default_start_menu_dir() {
+            let _ = shortcuts::remove_start_menu_shortcut(&start_menu, name);
+            let uninstall_name = format!("Uninstall {name}");
+            let _ = shortcuts::remove_start_menu_shortcut(&start_menu, &uninstall_name);
+        }
+    }
+
+    if install_root.exists() {
+        fs::remove_dir_all(install_root)
+            .with_context(|| format!("remove {}", install_root.display()))?;
+    }
+    Ok(())
+}
+
+fn exe_name_is_uninstaller() -> Result<bool> {
+    let exe = std::env::current_exe().context("resolve current exe")?;
+    let name = exe
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    Ok(name.contains("uninstall"))
+}
+
+fn arg_value(args: &[String], key: &str) -> Option<String> {
+    args.iter()
+        .position(|arg| arg == key)
+        .and_then(|idx| args.get(idx + 1))
+        .cloned()
 }
 
 fn write_installer_ui_exe() -> Result<PathBuf> {
@@ -247,6 +420,171 @@ fn create_done_marker_path() -> PathBuf {
     let mut path = std::env::temp_dir();
     path.push(format!("uvessel-install-done-{nonce}.flag"));
     path
+}
+
+fn create_log_path() -> PathBuf {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let mut path = std::env::temp_dir();
+    path.push(format!("uvessel-install-log-{nonce}.txt"));
+    path
+}
+
+fn create_launch_marker_path() -> PathBuf {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let mut path = std::env::temp_dir();
+    path.push(format!("uvessel-install-launch-{nonce}.flag"));
+    path
+}
+
+fn init_log_file(path: &Path) -> Result<()> {
+    fs::write(path, "installer log start\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn log_line(path: Option<&Path>, line: &str) -> Result<()> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    use std::io::Write;
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("open {}", path.display()))?;
+    writeln!(file, "{line}")?;
+    Ok(())
+}
+
+fn exec_with_log(cmd: &mut Command, log_path: Option<&Path>) -> Result<ExitStatus> {
+    if let Some(log_path) = log_path {
+        let line = format!("> {}", format_command(cmd));
+        let _ = log_line(Some(log_path), &line);
+    }
+    let output = cmd.output().context("spawn command")?;
+    if let Some(log_path) = log_path {
+        if !output.stdout.is_empty() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let _ = log_line(Some(log_path), text.trim_end());
+        }
+        if !output.stderr.is_empty() {
+            let text = String::from_utf8_lossy(&output.stderr);
+            let _ = log_line(Some(log_path), text.trim_end());
+        }
+        let _ = log_line(
+            Some(log_path),
+            &format!(
+                "exit status: {}",
+                output.status.code().map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string())
+            ),
+        );
+    }
+    Ok(output.status)
+}
+
+fn format_command(cmd: &Command) -> String {
+    let program = cmd.get_program().to_string_lossy();
+    let args = cmd
+        .get_args()
+        .map(|arg| arg.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if args.is_empty() {
+        program.to_string()
+    } else {
+        format!("{program} {args}")
+    }
+}
+
+fn ensure_uninstaller(install_root: &Path) -> Result<PathBuf> {
+    let dest = install_root.join("uninstaller.exe");
+    let current_exe = std::env::current_exe().context("resolve current exe")?;
+    if dest != current_exe {
+        fs::copy(&current_exe, &dest)
+            .with_context(|| format!("copy {} -> {}", current_exe.display(), dest.display()))?;
+    }
+    Ok(dest)
+}
+
+struct UpgradeBackup {
+    app_backup: Option<PathBuf>,
+    venv_backup: Option<PathBuf>,
+}
+
+impl UpgradeBackup {
+    fn create(install_root: &Path) -> Result<Self> {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let app_dir = install_root.join("app");
+        let venv_dir = install_root.join(".runtime").join("venv");
+        let app_backup = if app_dir.exists() {
+            let backup = install_root.join(format!("app.backup.{nonce}"));
+            fs::rename(&app_dir, &backup)
+                .with_context(|| format!("rename {} -> {}", app_dir.display(), backup.display()))?;
+            Some(backup)
+        } else {
+            None
+        };
+        let venv_backup = if venv_dir.exists() {
+            let backup = install_root.join(format!("venv.backup.{nonce}"));
+            fs::rename(&venv_dir, &backup)
+                .with_context(|| format!("rename {} -> {}", venv_dir.display(), backup.display()))?;
+            Some(backup)
+        } else {
+            None
+        };
+        Ok(Self {
+            app_backup,
+            venv_backup,
+        })
+    }
+
+    fn restore(&mut self) -> Result<()> {
+        if let Some(backup) = self.app_backup.take() {
+            let target = backup.parent().unwrap_or_else(|| Path::new(".")).join("app");
+            if !target.exists() {
+                fs::rename(&backup, &target).with_context(|| {
+                    format!("restore {} -> {}", backup.display(), target.display())
+                })?;
+            }
+        }
+        if let Some(backup) = self.venv_backup.take() {
+            let target = backup.parent().unwrap_or_else(|| Path::new(".")).join(".runtime").join("venv");
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            if !target.exists() {
+                fs::rename(&backup, &target).with_context(|| {
+                    format!("restore {} -> {}", backup.display(), target.display())
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    fn cleanup(&mut self) -> Result<()> {
+        if let Some(backup) = self.app_backup.take() {
+            if backup.exists() {
+                fs::remove_dir_all(&backup)
+                    .with_context(|| format!("remove {}", backup.display()))?;
+            }
+        }
+        if let Some(backup) = self.venv_backup.take() {
+            if backup.exists() {
+                fs::remove_dir_all(&backup)
+                    .with_context(|| format!("remove {}", backup.display()))?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -361,24 +699,6 @@ fn write_shim_exe(dest_exe: &Path) -> Result<()> {
         bail!("embedded shim is empty");
     }
     fs_ops::write_bytes_with_retry(dest_exe, shim_payload::EMBEDDED_SHIM, 5)
-}
-
-fn remove_app_dir(install_root: &Path) -> Result<()> {
-    let app_dir = install_root.join("app");
-    if app_dir.exists() {
-        fs::remove_dir_all(&app_dir)
-            .with_context(|| format!("remove {}", app_dir.display()))?;
-    }
-    Ok(())
-}
-
-fn remove_venv_dir(install_root: &Path) -> Result<()> {
-    let venv_dir = install_root.join(".runtime").join("venv");
-    if venv_dir.exists() {
-        fs::remove_dir_all(&venv_dir)
-            .with_context(|| format!("remove {}", venv_dir.display()))?;
-    }
-    Ok(())
 }
 
 fn cleanup_uv_cache(runtime: &Path) -> Result<()> {

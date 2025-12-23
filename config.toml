@@ -8,7 +8,7 @@ company = "Your Name or Company"
 description = "Short description of what the application does."
 
 # Versioning (semantic, pinned)
-version = "1.0.3"
+version = "1.0.4"
 
 # Execution
 entry_point = "main.py"

@@ -54,6 +54,15 @@ pub fn create_start_menu_shortcut(
     Ok(lnk_path)
 }
 
+pub fn remove_start_menu_shortcut(start_menu_dir: &Path, name: &str) -> Result<()> {
+    let lnk_path = shortcut_path(start_menu_dir, name)?;
+    if lnk_path.exists() {
+        std::fs::remove_file(&lnk_path)
+            .with_context(|| format!("remove {}", lnk_path.display()))?;
+    }
+    Ok(())
+}
+
 fn ps_quote(value: &str) -> String {
     let escaped = value.replace('\'', "''");
     format!("'{}'", escaped)
