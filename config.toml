@@ -1,9 +1,9 @@
 # Stable application identity (never change once published)
-app_id = "com.yourname.myapplication"
+app_id = "com.yourname.game-launcher"
 
 # User-facing metadata
-name = "MyApplication"
-product_name = "MyApplication"
+name = "game-launcher"
+product_name = "game-launcher"
 company = "Your Name or Company"
 description = "Short description of what the application does."
 
@@ -18,6 +18,3 @@ icon = "assets/game.ico"
 
 # Optional: custom install root. If relative, resolves under LOCALAPPDATA\Uvessel.
 # install_dir = "MyApps"
-
-## Distribution / updates
-## (auto-updater disabled; manual installer updates only)

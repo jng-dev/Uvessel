@@ -42,16 +42,28 @@
 }
 
 .primary:hover {
-  transform: translateY(-1px);
+  transform: translateY(-1px) scale(1.01);
+  box-shadow:
+    0 18px 34px rgba(23, 34, 54, 0.32),
+    0 0 14px rgba(124, 168, 255, 0.28);
 }
 
 .ghost {
   border: 1px solid rgba(16, 23, 34, 0.18);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.6);
   color: #1b2330;
   padding: 12px 18px;
   border-radius: 999px;
   font-size: 1rem;
   cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.ghost:hover {
+  transform: translateY(-1px);
+  border-color: rgba(124, 168, 255, 0.6);
+  box-shadow:
+    0 10px 22px rgba(23, 34, 54, 0.18),
+    0 0 16px rgba(124, 168, 255, 0.24);
 }
 </style>

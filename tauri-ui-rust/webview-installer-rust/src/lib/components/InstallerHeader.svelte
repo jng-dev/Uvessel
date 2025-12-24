@@ -37,10 +37,12 @@
   width: 68px;
   height: 68px;
   border-radius: 20px;
-  background: linear-gradient(140deg, #101722, #1b2433);
+  background: linear-gradient(140deg, #eef3f9, #d8e2ef);
   display: grid;
   place-items: center;
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 0 0 1px rgba(24, 32, 44, 0.06),
+    0 8px 18px rgba(24, 32, 44, 0.08);
 }
 
 .icon {

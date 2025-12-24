@@ -27,6 +27,8 @@
   display: grid;
   gap: 10px;
   min-height: 0;
+  position: relative;
+  overflow: hidden;
 }
 
 .log-header {
@@ -50,6 +52,26 @@
   max-height: none;
   min-height: 140px;
   overflow-y: auto;
+}
+
+.log::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    120deg,
+    rgba(124, 168, 255, 0.0) 0%,
+    rgba(124, 168, 255, 0.35) 50%,
+    rgba(124, 168, 255, 0.0) 100%
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .log-body::-webkit-scrollbar {

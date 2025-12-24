@@ -107,6 +107,19 @@ fn close_window(app: tauri::AppHandle) -> Result<(), String> {
     window.close().map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+fn focus_window(app: tauri::AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Err("main window not found".to_string());
+    };
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_always_on_top(false);
+    Ok(())
+}
+
 fn parse_args() -> InstallUiInfo {
     let mut name = "Installing...".to_string();
     let mut icon_path = None;
@@ -204,6 +217,7 @@ pub fn run() {
             get_install_status,
             read_install_log,
             mark_launch_requested,
+            focus_window,
             close_window
         ])
         .run(tauri::generate_context!())

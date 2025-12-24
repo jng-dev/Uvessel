@@ -27,7 +27,7 @@
   height: 100%;
   width: 45%;
   background: linear-gradient(90deg, var(--accent), #8fd3ff, var(--accent));
-  animation: glide 2.2s ease-in-out infinite;
+  animation: glide 2.1s ease-in-out infinite, glow 2.8s ease-in-out infinite;
 }
 
 .fill.done {
@@ -53,6 +53,16 @@
   100% {
     transform: translateX(-30%);
     width: 35%;
+  }
+}
+
+@keyframes glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px rgba(124, 168, 255, 0.35));
+  }
+  50% {
+    filter: drop-shadow(0 0 8px rgba(124, 168, 255, 0.6));
   }
 }
 </style>

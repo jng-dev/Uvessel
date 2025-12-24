@@ -64,8 +64,14 @@ pub fn run(root: &Path) -> Result<()> {
 
     if result.is_ok() && should_launch {
         if let Some(exe) = pending_launch {
-            Command::new(&exe)
-                .spawn()
+            let mut cmd = Command::new(&exe);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+            cmd.spawn()
                 .with_context(|| format!("launch installed exe {}", exe.display()))?;
         }
     }

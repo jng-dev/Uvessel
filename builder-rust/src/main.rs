@@ -42,6 +42,7 @@ fn main() -> Result<()> {
     let installer_ui_dir = repo_root.join("tauri-ui-rust").join("webview-installer-rust");
 
     build_launcher(&shim_dir)?;
+    stage_installer_ui_icon(&installer_ui_dir, &repo_root, &config.icon)?;
     build_installer_ui(&installer_ui_dir)?;
     stage_shim_for_installer(&shim_dir, &installer_dir)?;
     stage_installer_ui_for_installer(&installer_ui_dir, &installer_dir)?;
@@ -159,6 +160,41 @@ fn build_installer_ui(ui_dir: &Path) -> Result<()> {
     let status = run_npm(ui_dir, &["run", "tauri", "build"])?;
     if !status.success() {
         bail!("tauri build failed (exit {:?})", status.code());
+    }
+    Ok(())
+}
+
+fn stage_installer_ui_icon(ui_dir: &Path, repo_root: &Path, icon: &str) -> Result<()> {
+    if icon.trim().is_empty() {
+        return Ok(());
+    }
+    let icon_path = repo_root.join(icon);
+    if !icon_path.exists() {
+        bail!("installer ui icon not found at {}", icon_path.display());
+    }
+    let icons_dir = ui_dir.join("src-tauri").join("icons");
+    fs::create_dir_all(&icons_dir).context("create installer ui icons dir")?;
+
+    let ext = icon_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext == "ico" {
+        let dest = icons_dir.join("icon.ico");
+        fs::copy(&icon_path, &dest).with_context(|| {
+            format!("copy {} -> {}", icon_path.display(), dest.display())
+        })?;
+    } else if ext == "png" {
+        let dest = icons_dir.join("icon.png");
+        fs::copy(&icon_path, &dest).with_context(|| {
+            format!("copy {} -> {}", icon_path.display(), dest.display())
+        })?;
+    } else {
+        eprintln!(
+            "warning: unsupported icon format {}, leaving existing tauri icons",
+            ext
+        );
     }
     Ok(())
 }
