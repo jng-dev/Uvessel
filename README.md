@@ -11,6 +11,8 @@ It uses **uv** for Python environment management and a **thin Rust launcher** to
 
 Once installed, the application runs independently of any system-level Python installation.
 
+For a full walkthrough of the architecture and data flow, see `overview.md`.
+
 ---
 
 ## Important
@@ -45,6 +47,25 @@ If you are looking for a drag-and-drop binary packager, this is not that.
 
 The launcher itself is intentionally small and dumb. All setup happens at install time.
 
+Think of the pipeline as three phases:
+
+- Build time: `builder-rust/` assembles a distributable payload based on `config.toml`.
+- Install time: `installer-rust/` writes files to disk, creates persistent directories, and reports progress.
+- Runtime: `launcher-rust/` boots the bundled Python app through `uv` without system dependencies.
+
+---
+
+## Repository layout
+
+- `app/`: Your Python application and any runtime assets you want bundled.
+- `assets/`: Shared assets such as icons and branding for the installer/launcher.
+- `builder-rust/`: Build tool that assembles the installer payload.
+- `installer-rust/`: Installer core responsible for disk layout and install/update logic.
+- `launcher-rust/`: Minimal runtime launcher for the bundled app.
+- `tauri-ui-rust/`: Tauri-based installer UI project.
+- `dist/`: Output installers produced by the build process.
+- `config.toml`: Central config for product naming, entry point, and install paths.
+
 ---
 
 ## Usage
@@ -75,6 +96,19 @@ The launcher itself is intentionally small and dumb. All setup happens at instal
 
 6. The resulting installer will be placed in `dist/`.
    This is the file you distribute to end users.
+
+### Configuration (`config.toml`)
+
+The most commonly edited fields are:
+
+* `app_id`: Stable application identifier.
+* `name` / `product_name`: User-facing names used by the installer.
+* `company`: Publisher/brand name.
+* `description`: Short product description.
+* `version`: Semantic version string.
+* `entry_point`: Python entry point to run at startup.
+* `icon`: Path to your `.ico` file.
+* `install_dir`: Optional custom install root (relative paths resolve under `LOCALAPPDATA\Uvessel`).
 
 ### Build commands (local)
 
@@ -120,6 +154,17 @@ They are intended for application-managed or user-managed data, such as:
 * large assets (e.g. game data, models, datasets)
 
 What your application stores there is entirely up to you.
+
+---
+
+## Installer UI
+
+The installer experience is built with Tauri and a webview UI:
+
+- UI: `tauri-ui-rust/webview-installer-rust/` (Svelte front-end)
+- Tauri host: `tauri-ui-rust/webview-installer-rust/src-tauri/`
+
+The UI reflects status and logs coming from the installer core.
 
 ---
 

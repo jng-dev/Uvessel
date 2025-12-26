@@ -18,14 +18,6 @@ fn get_install_ui_info(state: tauri::State<'_, InstallUiInfo>) -> InstallUiInfo 
     state.inner().clone()
 }
 
-#[tauri::command]
-fn is_install_done(state: tauri::State<'_, InstallUiInfo>) -> bool {
-    let Some(path) = state.done_file.as_ref() else {
-        return false;
-    };
-    std::fs::metadata(path).is_ok()
-}
-
 #[derive(Serialize)]
 struct InstallStatus {
     status: String,
@@ -198,7 +190,6 @@ fn parse_args() -> InstallUiInfo {
 pub fn run() {
     let info = parse_args();
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .manage(info.clone())
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
@@ -213,7 +204,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_install_ui_info,
-            is_install_done,
             get_install_status,
             read_install_log,
             mark_launch_requested,

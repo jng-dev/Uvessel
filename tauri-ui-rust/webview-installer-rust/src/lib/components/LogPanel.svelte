@@ -18,12 +18,14 @@
 
 <style>
 .log {
-  background: rgba(14, 18, 28, 0.9);
+  background: rgba(14, 18, 28, 0.84);
   border-radius: 18px;
   padding: 12px 14px;
   color: #d6e1f0;
   font-size: 0.85rem;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 10px 24px rgba(0, 0, 0, 0.18);
   display: grid;
   gap: 10px;
   min-height: 0;
@@ -36,7 +38,7 @@
   align-items: center;
   justify-content: space-between;
   text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.14em;
   font-size: 0.7rem;
   color: rgba(214, 225, 240, 0.7);
 }
@@ -54,23 +56,20 @@
   overflow-y: auto;
 }
 
-.log::before {
+.log::after {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
   background: linear-gradient(
-    120deg,
-    rgba(124, 168, 255, 0.0) 0%,
-    rgba(124, 168, 255, 0.35) 50%,
-    rgba(124, 168, 255, 0.0) 100%
+    90deg,
+    transparent,
+    rgba(122, 162, 255, 0.35),
+    transparent
   );
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  opacity: 0.5;
+  opacity: 0.7;
   pointer-events: none;
 }
 
